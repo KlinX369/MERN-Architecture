@@ -6,299 +6,104 @@ import React, {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Search,
+  Bell,
+  Image as ImageIcon,
+  Heart,
+  MessageCircle,
+  Send,
+  MoreHorizontal,
+  Globe2,
+  Home,
+  Package,
+  Users,
+  Inbox as InboxIcon,
+  Plus,
+  X,
+  Check,
+  Pencil,
+  LogOut,
+  Trash2,
+  Bookmark,
+  Share2,
+  Download,
+  UserPlus,
+  MessageSquare,
+  RefreshCw,
+  Camera,
+  User,
+  Save,
+  ArrowLeft,
+} from "lucide-react";
 
 /*
-=========================================================
-CAREBOX COMMUNITY — SINGLE FILE APP
-=========================================================
+===========================================================
+CAREBOX COMMUNITY — SINGLE FILE, PRODUCTION-READY FRONTEND
+===========================================================
 
-Frontend responsibilities:
-- UI
-- authentication token
-- API communication
-- optimistic updates
-- local cache/offline fallback
-- navigation
-- profile
-- home
-- products
-- community
-- inbox
-- notifications
-- search
+Expected backend API:
+  GET    /feed?limit=20&cursor=...
+  POST   /posts                         multipart/form-data
+  DELETE /posts/:id
+  POST   /posts/:id/like                { liked: boolean }
+  GET    /posts/:id/comments
+  POST   /posts/:id/comments            { content: string }
+  POST   /posts/:id/save                { saved: boolean }
+  PATCH  /users/me                      multipart/form-data
+  GET    /users                          { users: [...] }  <-- all platform users
+  GET    /conversations
+  POST   /conversations                 { participantId }
+  GET    /conversations/:id/messages
+  POST   /conversations/:id/messages    { content }
+  GET    /notifications?limit=30
+  PATCH  /notifications/read-all
 
-Backend responsibilities:
-- authentication
-- MongoDB persistence
-- authorization
-- image storage
-- cross-user synchronization
-- messages
-- notifications
-- likes/comments
+IMPORTANT:
+- MongoDB/cloud persistence is performed by the backend.
+- LocalStorage is used only as a resilient UI cache/offline fallback.
+- Profile images and post images should be stored by the backend in
+  cloud/object storage, not in MongoDB as binary data.
 */
 
-/* ======================================================
-CONFIG
-====================================================== */
-
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:5000/api";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 const STORAGE = {
   USER: "carebox_user",
   TOKEN: "token",
   POSTS: "carebox_posts_cache",
-  PRODUCTS: "carebox_products_cache",
   SAVED: "carebox_saved_posts",
   SEARCHES: "carebox_recent_searches",
+  LOCAL_POSTS: "carebox_local_posts",
 };
 
-/* ======================================================
-ICON SYSTEM
-====================================================== */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const POST_TEXT_LIMIT = 5000;
+const POST_TITLE_LIMIT = 160;
 
-const Icon = ({
-  name,
-  size = 21,
-  strokeWidth = 1.8,
-  filled = false,
-}) => {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 24 24",
-    fill: filled ? "currentColor" : "none",
-    stroke: "currentColor",
-    strokeWidth,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    style: {
-      display: "block",
-      flexShrink: 0,
-    },
-  };
+/* =========================================================
+   HELPERS
+   ========================================================= */
 
-  switch (name) {
-    case "home":
-      return (
-        <svg {...common}>
-          <path d="m3 10 9-7 9 7" />
-          <path d="M5 9v11h14V9" />
-          <path d="M9 20v-6h6v6" />
-        </svg>
-      );
-
-    case "box":
-      return (
-        <svg {...common}>
-          <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-          <path d="m3 8 9 5 9-5" />
-          <path d="M3 8v9l9 5 9-5V8" />
-        </svg>
-      );
-
-    case "users":
-      return (
-        <svg {...common}>
-          <circle cx="9" cy="8" r="3" />
-          <path d="M3 20a6 6 0 0 1 12 0" />
-          <path d="M16 5a3 3 0 0 1 0 6" />
-          <path d="M18 14a5 5 0 0 1 3 4.5" />
-        </svg>
-      );
-
-    case "inbox":
-      return (
-        <svg {...common}>
-          <path d="M4 5h16v14H4z" />
-          <path d="M4 13h4l2 2h4l2-2h4" />
-        </svg>
-      );
-
-    case "search":
-      return (
-        <svg {...common}>
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-4-4" />
-        </svg>
-      );
-
-    case "bell":
-      return (
-        <svg {...common}>
-          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
-          <path d="M10 21h4" />
-        </svg>
-      );
-
-    case "heart":
-      return (
-        <svg {...common}>
-          <path d="M20.8 8.8c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10A4.8 4.8 0 0 1 12 6.1a4.8 4.8 0 0 1 8.8 2.7Z" />
-        </svg>
-      );
-
-    case "comment":
-      return (
-        <svg {...common}>
-          <path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 9.8 9.8 0 0 1-3.5-.6L4 20l1.6-3.5A7.1 7.1 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" />
-        </svg>
-      );
-
-    case "send":
-      return (
-        <svg {...common}>
-          <path d="m21 3-7.5 18-3.5-7-7-3.5L21 3Z" />
-          <path d="M21 3 10 14" />
-        </svg>
-      );
-
-    case "share":
-      return (
-        <svg {...common}>
-          <path d="M12 3v12" />
-          <path d="m7 8 5-5 5 5" />
-          <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
-        </svg>
-      );
-
-    case "save":
-      return (
-        <svg {...common}>
-          <path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v18l-7-4-7 4V4Z" />
-        </svg>
-      );
-
-    case "plus":
-      return (
-        <svg {...common}>
-          <path d="M12 5v14" />
-          <path d="M5 12h14" />
-        </svg>
-      );
-
-    case "close":
-      return (
-        <svg {...common}>
-          <path d="m6 6 12 12" />
-          <path d="m18 6-12 12" />
-        </svg>
-      );
-
-    case "check":
-      return (
-        <svg {...common}>
-          <path d="m5 12 4 4L19 6" />
-        </svg>
-      );
-
-    case "more":
-      return (
-        <svg {...common}>
-          <circle cx="5" cy="12" r="1.2" fill="currentColor" />
-          <circle cx="12" cy="12" r="1.2" fill="currentColor" />
-          <circle cx="19" cy="12" r="1.2" fill="currentColor" />
-        </svg>
-      );
-
-    case "user":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4 21a8 8 0 0 1 16 0" />
-        </svg>
-      );
-
-    case "image":
-      return (
-        <svg {...common}>
-          <rect x="3" y="3" width="18" height="18" rx="3" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <path d="m21 15-5-5L5 21" />
-        </svg>
-      );
-
-    case "edit":
-      return (
-        <svg {...common}>
-          <path d="m4 20 4-.8L19 8.2a2 2 0 0 0-3-3L5 16l-1 4Z" />
-          <path d="m14.5 6.5 3 3" />
-        </svg>
-      );
-
-    case "logout":
-      return (
-        <svg {...common}>
-          <path d="M10 17l5-5-5-5" />
-          <path d="M15 12H3" />
-          <path d="M21 3v18" />
-        </svg>
-      );
-
-    case "checkCircle":
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-          <path d="m8 12 3 3 5-6" />
-        </svg>
-      );
-
-    case "message":
-      return (
-        <svg {...common}>
-          <path d="M4 5h16v12H8l-4 4V5Z" />
-        </svg>
-      );
-
-    case "cart":
-      return (
-        <svg {...common}>
-          <path d="M3 4h2l2 11h11l2-8H6" />
-          <circle cx="9" cy="19" r="1.5" />
-          <circle cx="17" cy="19" r="1.5" />
-        </svg>
-      );
-
-    case "location":
-      return (
-        <svg {...common}>
-          <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
-          <circle cx="12" cy="10" r="2.5" />
-        </svg>
-      );
-
-    case "filter":
-      return (
-        <svg {...common}>
-          <path d="M4 6h16" />
-          <path d="M7 12h10" />
-          <path d="M10 18h4" />
-        </svg>
-      );
-
-    case "trash":
-      return (
-        <svg {...common}>
-          <path d="M4 7h16" />
-          <path d="M10 11v6" />
-          <path d="M14 11v6" />
-          <path d="M6 7l1 14h10l1-14" />
-          <path d="M9 7V4h6v3" />
-        </svg>
-      );
-
-    default:
-      return null;
+const readJSON = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
   }
 };
 
-/* ======================================================
-HELPERS
-====================================================== */
+const writeJSON = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can fail in private/restricted browser contexts.
+  }
+};
 
-const token = () => {
+const getToken = () => {
   try {
     return localStorage.getItem(STORAGE.TOKEN) || "";
   } catch {
@@ -306,243 +111,189 @@ const token = () => {
   }
 };
 
-const read = (key, fallback) => {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
+const idOf = (item) =>
+  item?.id || item?._id || item?.userId || item?.user?.id || "";
+
+const userEmailLocalPart = (email = "") =>
+  String(email).split("@")[0].trim();
+
+const makeUsernameFromEmail = (email = "") => {
+  const local = userEmailLocalPart(email)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "")
+    .replace(/^[._-]+|[._-]+$/g, "");
+
+  return local || "user";
 };
 
-const write = (key, value) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-};
+/*
+  The avatar is intentionally derived from the email when no uploaded
+  profile image exists. It uses the FIRST LETTER of the email address,
+  exactly as requested.
+*/
+const firstEmailLetter = (email = "") =>
+  String(email).trim().charAt(0).toUpperCase() || "U";
 
-const getStoredUser = () => {
-  return read(STORAGE.USER, null);
-};
+const normalizeUser = (raw) => {
+  if (!raw) return null;
 
-const normalizeUser = (user) => {
-  if (!user) return null;
+  const email = raw.email || "";
+  const generatedUsername = makeUsernameFromEmail(email);
+  const username =
+    String(raw.username || "").trim() || generatedUsername;
+
+  const name =
+    String(raw.name || "").trim() ||
+    String(raw.fullName || "").trim() ||
+    username;
 
   return {
-    ...user,
-    name:
-      user.name ||
-      user.username ||
-      user.email?.split("@")[0] ||
-      "User",
-    username:
-      user.username ||
-      user.name ||
-      user.email?.split("@")[0] ||
-      "user",
-    email: user.email || "",
+    ...raw,
+    id: raw.id || raw._id,
+    _id: raw._id || raw.id,
+    email,
+    name,
+    username,
+    bio: raw.bio || "",
     avatar:
-      user.avatar ||
-      user.profilePicture ||
-      user.photoURL ||
+      raw.avatar ||
+      raw.profilePicture ||
+      raw.photoURL ||
+      raw.image ||
       "",
+    avatarLetter: firstEmailLetter(email),
+    settings: raw.settings || {},
   };
 };
 
-const initials = (user) => {
+const initialsFor = (user) => {
+  if (user?.avatarLetter) return user.avatarLetter;
+
   const value =
-    user?.name ||
-    user?.username ||
     user?.email ||
+    user?.username ||
+    user?.name ||
     "U";
 
-  const parts = String(value)
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  return String(value).trim().charAt(0).toUpperCase() || "U";
+};
 
-  if (parts.length >= 2) {
-    return (
-      parts[0][0] +
-      parts[1][0]
-    ).toUpperCase();
-  }
+const normalizePost = (raw) => {
+  if (!raw) return null;
 
-  return value
-    .charAt(0)
-    .toUpperCase();
+  const author = normalizeUser(
+    raw.author ||
+      raw.artist ||
+      raw.owner ||
+      raw.user ||
+      {}
+  );
+
+  return {
+    ...raw,
+    id: raw.id || raw._id || `local-${Date.now()}-${Math.random()}`,
+    _id: raw._id || raw.id,
+    title: raw.title || "",
+    description: raw.description || raw.content || "",
+    image:
+      raw.image ||
+      raw.imageUrl ||
+      raw.imageUrls?.optimized ||
+      raw.imageUrls?.fullsize ||
+      raw.mediaUrls?.optimized ||
+      raw.mediaUrls?.fullsize ||
+      "",
+    attachment:
+      raw.attachment ||
+      raw.fileUrl ||
+      raw.attachmentUrl ||
+      "",
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    likeCount: Number(raw.likeCount || raw.likesCount || 0),
+    commentCount: Number(raw.commentCount || raw.commentsCount || 0),
+    shareCount: Number(raw.shareCount || 0),
+    liked: Boolean(raw.liked || raw.likedByMe),
+    saved: Boolean(raw.saved || raw.savedByMe),
+    createdAt: raw.createdAt || new Date().toISOString(),
+    author,
+  };
 };
 
 const timeAgo = (date) => {
   if (!date) return "Just now";
 
-  const time = new Date(date).getTime();
+  const value = new Date(date).getTime();
+  if (Number.isNaN(value)) return "Just now";
 
-  if (Number.isNaN(time)) return "Just now";
-
-  const diff = Math.max(
-    0,
-    Date.now() - time
-  );
-
-  const seconds = Math.floor(
-    diff / 1000
-  );
+  const diff = Math.max(0, Date.now() - value);
+  const seconds = Math.floor(diff / 1000);
 
   if (seconds < 60) return "Just now";
 
-  const minutes = Math.floor(
-    seconds / 60
-  );
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
 
-  if (minutes < 60)
-    return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
 
-  const hours = Math.floor(
-    minutes / 60
-  );
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
 
-  if (hours < 24)
-    return `${hours}h ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
 
-  const days = Math.floor(
-    hours / 24
-  );
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
 
-  if (days < 7)
-    return `${days}d ago`;
-
-  const weeks = Math.floor(
-    days / 7
-  );
-
-  if (weeks < 5)
-    return `${weeks}w ago`;
-
-  return `${Math.floor(
-    days / 30
-  )}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
 };
 
-const avatar = (user) => {
-  if (user?.avatar) return user.avatar;
+const isSameUser = (a, b) => {
+  const aid = String(a?.id || a?._id || "");
+  const bid = String(b?.id || b?._id || "");
 
-  return "";
+  if (aid && bid && aid === bid) return true;
+
+  return (
+    String(a?.email || "").toLowerCase() ===
+      String(b?.email || "").toLowerCase() &&
+    Boolean(a?.email)
+  );
 };
 
-const normalizePost = (post) => ({
-  ...post,
-  id:
-    post?.id ||
-    post?._id ||
-    `local-${Date.now()}`,
-  title: post?.title || "",
-  description:
-    post?.description ||
-    post?.content ||
-    "",
-  image:
-    post?.imageUrls?.optimized ||
-    post?.imageUrls?.fullsize ||
-    post?.image ||
-    post?.imageUrl ||
-    "",
-  tags: Array.isArray(post?.tags)
-    ? post.tags
-    : [],
-  likeCount: Number(
-    post?.likeCount || 0
-  ),
-  commentCount: Number(
-    post?.commentCount || 0
-  ),
-  createdAt:
-    post?.createdAt ||
-    new Date().toISOString(),
-  author:
-    post?.artist ||
-    post?.author ||
-    {
-      username:
-        "Community Member",
-    },
-});
+/* =========================================================
+   API
+   ========================================================= */
 
-const normalizeProduct = (
-  product
-) => ({
-  ...product,
-  id:
-    product?.id ||
-    product?._id ||
-    `local-product-${Date.now()}`,
-  name:
-    product?.name ||
-    product?.title ||
-    "Product",
-  description:
-    product?.description || "",
-  price: Number(
-    product?.price || 0
-  ),
-  image:
-    product?.image ||
-    product?.imageUrl ||
-    product?.imageUrls?.optimized ||
-    "",
-  category:
-    product?.category ||
-    "Other",
-  seller:
-    product?.seller ||
-    product?.owner ||
-    {},
-  createdAt:
-    product?.createdAt ||
-    new Date().toISOString(),
-});
+const api = async (endpoint, options = {}) => {
+  const authToken = getToken();
 
-/* ======================================================
-API
-====================================================== */
-
-const api = async (
-  endpoint,
-  options = {}
-) => {
   const headers = {
     ...(options.body instanceof FormData
       ? {}
-      : {
-          "Content-Type":
-            "application/json",
-        }),
-    ...(token()
-      ? {
-          Authorization:
-            `Bearer ${token()}`,
-        }
+      : { "Content-Type": "application/json" }),
+    ...(authToken
+      ? { Authorization: `Bearer ${authToken}` }
       : {}),
     ...(options.headers || {}),
   };
 
-  const response = await fetch(
-    `${API_BASE}${endpoint}`,
-    {
-      ...options,
-      headers,
-    }
-  );
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers,
+  });
 
   let data = {};
-
   try {
     data = await response.json();
-  } catch {}
+  } catch {
+    // Empty response is valid for some DELETE/PATCH endpoints.
+  }
 
   if (!response.ok) {
     throw new Error(
       data?.message ||
+        data?.error ||
         `Request failed (${response.status})`
     );
   }
@@ -550,288 +301,102 @@ const api = async (
   return data;
 };
 
-/* ======================================================
-AVATAR COMPONENT
-====================================================== */
+const extractArray = (data, keys = ["data"]) => {
+  for (const key of keys) {
+    if (Array.isArray(data?.[key])) return data[key];
+  }
+
+  if (Array.isArray(data)) return data;
+
+  return [];
+};
+
+/* =========================================================
+   AVATAR
+   ========================================================= */
 
 function UserAvatar({
   user,
   size = 40,
   className = "",
 }) {
-  if (avatar(user)) {
+  const normalized = normalizeUser(user);
+
+  if (normalized?.avatar) {
     return (
       <img
-        src={avatar(user)}
+        src={normalized.avatar}
         alt=""
         className={`avatar ${className}`}
-        style={{
-          width: size,
-          height: size,
-        }}
+        style={{ width: size, height: size }}
       />
     );
   }
 
   return (
     <div
-      className={`avatar avatar-initials ${className}`}
+      className={`avatar avatar-letter ${className}`}
       style={{
         width: size,
         height: size,
-        fontSize: Math.max(
-          11,
-          size * 0.38
-        ),
+        fontSize: Math.max(12, size * 0.38),
       }}
+      aria-label={`Profile avatar for ${
+        normalized?.email || "user"
+      }`}
     >
-      {initials(user)}
+      {initialsFor(normalized)}
     </div>
   );
 }
 
-/* ======================================================
-MAIN APPLICATION
-====================================================== */
+/* =========================================================
+   MAIN APP
+   ========================================================= */
 
 export default function CareBoxCommunity() {
   const navigate = useNavigate();
 
-  const [user, setUser] =
-    useState(() =>
-      normalizeUser(
-        getStoredUser()
-      )
-    );
-
-  const [activeView, setActiveView] =
-    useState("home");
-
-  const [showCreatePost, setShowCreatePost] =
-    useState(false);
-
-  const [showCreateProduct, setShowCreateProduct] =
-    useState(false);
-
-  const [showProfile, setShowProfile] =
-    useState(false);
-
-  const [globalSearch, setGlobalSearch] =
-    useState("");
-
-  const [notifications, setNotifications] =
-    useState([]);
-
-  const [unreadNotifications, setUnreadNotifications] =
-    useState(0);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [toast, setToast] =
-    useState("");
-
-  /* ====================================================
-     TOAST
-  ==================================================== */
-
-  const notify = useCallback(
-    (message) => {
-      setToast(message);
-
-      window.clearTimeout(
-        window.__careboxToast
-      );
-
-      window.__careboxToast =
-        window.setTimeout(() => {
-          setToast("");
-        }, 2800);
-    },
-    []
+  const [user, setUser] = useState(() =>
+    normalizeUser(readJSON(STORAGE.USER, null))
   );
 
-  /* ====================================================
-     LOAD USER
-  ==================================================== */
+  const [activeView, setActiveView] = useState("community");
+  const [showProfile, setShowProfile] = useState(false);
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [toast, setToast] = useState("");
 
-  useEffect(() => {
-    const stored =
-      normalizeUser(
-        getStoredUser()
-      );
-
-    if (stored) {
-      setUser(stored);
-    }
+  const notify = useCallback((message) => {
+    setToast(message);
+    window.clearTimeout(window.__careboxToastTimer);
+    window.__careboxToastTimer = window.setTimeout(() => {
+      setToast("");
+    }, 2800);
   }, []);
 
-  /* ====================================================
-     GLOBAL SEARCH
-  ==================================================== */
-
-  const handleGlobalSearch = (
-    event
-  ) => {
-    if (event.key === "Enter") {
-      const query =
-        globalSearch.trim();
-
-      if (!query) return;
-
-      const searches =
-        read(
-          STORAGE.SEARCHES,
-          []
-        );
-
-      write(
-        STORAGE.SEARCHES,
-        [
-          query,
-          ...searches.filter(
-            (item) =>
-              item !== query
-          ),
-        ].slice(0, 10)
-      );
-
-      setActiveView("search");
-    }
-  };
-
-  /* ====================================================
-     NOTIFICATIONS
-  ==================================================== */
-
-  const loadNotifications =
-    useCallback(async () => {
-      if (!token()) return;
-
-      try {
-        const data =
-          await api(
-            "/notifications?limit=30"
-          );
-
-        const list =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : Array.isArray(data)
-            ? data
-            : [];
-
-        setNotifications(list);
-
-        setUnreadNotifications(
-          list.filter(
-            (item) =>
-              !item.read &&
-              !item.isRead
-          ).length
-        );
-      } catch (error) {
-        console.warn(
-          "Notifications unavailable",
-          error
-        );
-      }
-    }, []);
-
   useEffect(() => {
-    loadNotifications();
+    const stored = normalizeUser(readJSON(STORAGE.USER, null));
+    if (stored) setUser(stored);
+  }, []);
 
-    const timer =
-      setInterval(
-        loadNotifications,
-        30000
-      );
-
-    return () =>
-      clearInterval(timer);
-  }, [
-    loadNotifications,
-  ]);
-
-  const markAllNotificationsRead =
-    async () => {
-      setNotifications(
-        (items) =>
-          items.map((item) => ({
-            ...item,
-            read: true,
-            isRead: true,
-          }))
-      );
-
-      setUnreadNotifications(0);
-
-      try {
-        await api(
-          "/notifications/read-all",
-          {
-            method: "PATCH",
-          }
-        );
-      } catch {}
-    };
-
-  /* ====================================================
-     REFRESH
-  ==================================================== */
-
-  const refreshEverything =
-    async () => {
-      setRefreshing(true);
-
-      try {
-        await loadNotifications();
-
-        window.dispatchEvent(
-          new Event(
-            "carebox-refresh"
-          )
-        );
-
-        notify(
-          "Community refreshed"
-        );
-      } finally {
-        setRefreshing(false);
-      }
-    };
-
-  /* ====================================================
-     LOGOUT
-  ==================================================== */
+  const updateUser = useCallback((updated) => {
+    const normalized = normalizeUser(updated);
+    if (!normalized) return;
+    setUser(normalized);
+    writeJSON(STORAGE.USER, normalized);
+  }, []);
 
   const logout = () => {
-    localStorage.removeItem(
-      STORAGE.TOKEN
-    );
-    localStorage.removeItem(
-      STORAGE.USER
-    );
-
+    localStorage.removeItem(STORAGE.TOKEN);
+    localStorage.removeItem(STORAGE.USER);
     setUser(null);
-
     navigate("/login");
   };
-
-  /* ====================================================
-     NAVIGATION
-  ==================================================== */
 
   const go = (view) => {
     setActiveView(view);
     setShowProfile(false);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -842,85 +407,58 @@ export default function CareBoxCommunity() {
         <header className="topbar">
           <button
             className="brand"
-            onClick={() =>
-              go("home")
-            }
+            onClick={() => go("community")}
+            aria-label="CareBox home"
           >
-            <span className="brand-mark">
-              C
-            </span>
-            <span>
-              CareBox
-            </span>
+            <span className="brand-mark">C</span>
+            <span>CareBox</span>
           </button>
 
-          <div className="top-search">
-            <Icon
-              name="search"
-              size={17}
-            />
-
+          <div className="desktop-search">
+            <Search size={17} />
             <input
-              value={globalSearch}
-              onChange={(e) =>
-                setGlobalSearch(
-                  e.target.value
-                )
-              }
-              onKeyDown={
-                handleGlobalSearch
-              }
               placeholder="Search CareBox..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const value = e.currentTarget.value.trim();
+                  if (value) {
+                    go("search");
+                    window.dispatchEvent(
+                      new CustomEvent("carebox-search", {
+                        detail: value,
+                      })
+                    );
+                  }
+                }
+              }}
             />
           </div>
 
           <div className="top-actions">
             <button
-              className="top-icon"
-              onClick={() =>
-                go("search")
-              }
+              className="top-icon mobile-search-button"
+              onClick={() => go("search")}
+              aria-label="Search"
             >
-              <Icon
-                name="search"
-                size={20}
-              />
+              <Search size={20} />
             </button>
 
             <button
-              className="top-icon notification-icon"
-              onClick={() =>
-                go("notifications")
-              }
+              className="top-icon"
+              onClick={() => go("notifications")}
+              aria-label="Notifications"
             >
-              <Icon
-                name="bell"
-                size={20}
-              />
-
-              {unreadNotifications >
-                0 && (
-                <span className="notification-count">
-                  {unreadNotifications >
-                  9
-                    ? "9+"
-                    : unreadNotifications}
-                </span>
-              )}
+              <Bell size={20} />
             </button>
 
             <button
               className="profile-trigger"
               onClick={() =>
-                setShowProfile(
-                  (value) => !value
-                )
+                setShowProfile((value) => !value)
               }
+              aria-label="Open profile menu"
             >
-              <UserAvatar
-                user={user}
-                size={34}
-              />
+              <UserAvatar user={user} size={35} />
             </button>
           </div>
         </header>
@@ -928,104 +466,54 @@ export default function CareBoxCommunity() {
         {showProfile && (
           <div className="profile-dropdown">
             <div className="dropdown-user">
-              <UserAvatar
-                user={user}
-                size={44}
-              />
-
+              <UserAvatar user={user} size={45} />
               <div>
                 <strong>
-                  {user?.name ||
-                    user?.username ||
-                    "User"}
+                  {user?.name || user?.username || "User"}
                 </strong>
-
                 <span>
-                  {user?.email ||
-                    "Community member"}
+                  {user?.email || "Community member"}
                 </span>
               </div>
             </div>
 
-            <button
-              onClick={() =>
-                go("profile")
-              }
-            >
-              <Icon
-                name="user"
-                size={17}
-              />
+            <button onClick={() => go("profile")}>
+              <User size={17} />
               Profile
             </button>
 
-            <button
-              onClick={() =>
-                go("settings")
-              }
-            >
-              <Icon
-                name="edit"
-                size={17}
-              />
+            <button onClick={() => go("settings")}>
+              <Pencil size={17} />
               Account settings
             </button>
 
-            <button
-              className="danger"
-              onClick={logout}
-            >
-              <Icon
-                name="logout"
-                size={17}
-              />
+            <button className="danger" onClick={logout}>
+              <LogOut size={17} />
               Log out
             </button>
           </div>
         )}
 
         <main className="page">
+          {activeView === "community" && (
+            <CommunityView
+              user={user}
+              notify={notify}
+              onCreate={() => setShowCreatePost(true)}
+            />
+          )}
+
           {activeView === "home" && (
             <HomeView
               user={user}
               go={go}
-              onCreatePost={() =>
-                setShowCreatePost(
-                  true
-                )
-              }
-              onCreateProduct={() =>
-                setShowCreateProduct(
-                  true
-                )
-              }
-              notify={notify}
             />
           )}
 
-          {activeView ===
-            "products" && (
+          {activeView === "products" && (
             <ProductsView
               user={user}
               notify={notify}
-              onCreate={() =>
-                setShowCreateProduct(
-                  true
-                )
-              }
-            />
-          )}
-
-          {activeView ===
-            "community" && (
-            <CommunityView
-              user={user}
-              notify={notify}
-              onCreate={() =>
-                setShowCreatePost(
-                  true
-                )
-              }
             />
           )}
 
@@ -1036,171 +524,86 @@ export default function CareBoxCommunity() {
             />
           )}
 
-          {activeView ===
-            "notifications" && (
-            <NotificationsView
-              notifications={
-                notifications
-              }
-              unread={
-                unreadNotifications
-              }
-              onRead={
-                markAllNotificationsRead
-              }
-            />
-          )}
-
-          {activeView ===
-            "search" && (
-            <SearchView
-              query={globalSearch}
-              setQuery={
-                setGlobalSearch
-              }
-              go={go}
-              notify={notify}
-            />
-          )}
-
-          {activeView ===
-            "profile" && (
+          {activeView === "profile" && (
             <ProfileView
               user={user}
-              setUser={setUser}
+              setUser={updateUser}
               notify={notify}
             />
           )}
 
-          {activeView ===
-            "settings" && (
+          {activeView === "settings" && (
             <SettingsView
               user={user}
-              setUser={setUser}
+              setUser={updateUser}
+              notify={notify}
               logout={logout}
+            />
+          )}
+
+          {activeView === "notifications" && (
+            <NotificationsView
+              notify={notify}
+            />
+          )}
+
+          {activeView === "search" && (
+            <SearchView
+              user={user}
               notify={notify}
             />
           )}
         </main>
 
         <nav className="bottom-nav">
-          <NavButton
-            active={
-              activeView === "home"
-            }
-            icon="home"
+          <NavItem
+            active={activeView === "home"}
+            icon={<Home size={21} />}
             label="Home"
-            onClick={() =>
-              go("home")
-            }
+            onClick={() => go("home")}
           />
 
-          <NavButton
-            active={
-              activeView ===
-              "products"
-            }
-            icon="box"
-            label="Products"
-            onClick={() =>
-              go("products")
-            }
+          <NavItem
+            active={activeView === "products"}
+            icon={<Package size={21} />}
+            label="Product"
+            onClick={() => go("products")}
           />
 
-          <NavButton
-            active={
-              activeView ===
-              "community"
-            }
-            icon="users"
+          <NavItem
+            active={activeView === "community"}
+            icon={<Users size={21} />}
             label="Community"
-            onClick={() =>
-              go("community")
-            }
+            onClick={() => go("community")}
           />
 
-          <NavButton
-            active={
-              activeView === "inbox"
-            }
-            icon="inbox"
+          <NavItem
+            active={activeView === "inbox"}
+            icon={<InboxIcon size={21} />}
             label="Inbox"
-            onClick={() =>
-              go("inbox")
-            }
+            onClick={() => go("inbox")}
           />
         </nav>
 
         <button
-          className="floating-button"
-          onClick={() =>
-            setShowCreatePost(true)
-          }
-          aria-label="Create"
+          className="fab"
+          onClick={() => setShowCreatePost(true)}
+          aria-label="Create post"
         >
-          <Icon
-            name="plus"
-            size={26}
-            strokeWidth={2}
-          />
+          <Plus size={27} />
         </button>
 
         {showCreatePost && (
           <CreatePostModal
             user={user}
-            onClose={() =>
-              setShowCreatePost(
-                false
-              )
-            }
-            onCreated={() => {
-              window.dispatchEvent(
-                new Event(
-                  "carebox-refresh"
-                )
-              );
-
-              notify(
-                "Post published successfully"
-              );
-            }}
+            notify={notify}
+            onClose={() => setShowCreatePost(false)}
           />
-        )}
-
-        {showCreateProduct && (
-          <CreateProductModal
-            user={user}
-            onClose={() =>
-              setShowCreateProduct(
-                false
-              )
-            }
-            onCreated={() => {
-              window.dispatchEvent(
-                new Event(
-                  "carebox-refresh"
-                )
-              );
-
-              notify(
-                "Product published successfully"
-              );
-            }}
-          />
-        )}
-
-        {refreshing && (
-          <div className="refresh-indicator">
-            Refreshing...
-          </div>
         )}
 
         {toast && (
-          <div className="toast">
-            <Icon
-              name="checkCircle"
-              size={17}
-            />
+          <div className="toast" role="status">
+            <Check size={16} />
             {toast}
           </div>
         )}
@@ -1209,11 +612,11 @@ export default function CareBoxCommunity() {
   );
 }
 
-/* ======================================================
-NAV BUTTON
-====================================================== */
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
 
-function NavButton({
+function NavItem({
   active,
   icon,
   label,
@@ -1221,454 +624,148 @@ function NavButton({
 }) {
   return (
     <button
-      className={`nav-button ${
-        active ? "active" : ""
-      }`}
+      className={`nav-item ${active ? "active" : ""}`}
       onClick={onClick}
     >
-      <Icon
-        name={icon}
-        size={21}
-      />
-
+      {icon}
       <span>{label}</span>
     </button>
   );
 }
 
-/* ======================================================
-HOME
-====================================================== */
-
-function HomeView({
-  user,
-  go,
-  onCreatePost,
-  onCreateProduct,
-  notify,
-}) {
-  const [stats, setStats] =
-    useState({
-      posts: 0,
-      products: 0,
-      messages: 0,
-    });
-
-  const load = useCallback(
-    async () => {
-      try {
-        const data =
-          await api(
-            "/dashboard/summary"
-          );
-
-        setStats({
-          posts:
-            data?.data?.posts ||
-            0,
-          products:
-            data?.data?.products ||
-            0,
-          messages:
-            data?.data?.messages ||
-            0,
-        });
-      } catch {}
-    },
-    []
-  );
-
-  useEffect(() => {
-    load();
-
-    const handler = () =>
-      load();
-
-    window.addEventListener(
-      "carebox-refresh",
-      handler
-    );
-
-    return () =>
-      window.removeEventListener(
-        "carebox-refresh",
-        handler
-      );
-  }, [load]);
-
-  return (
-    <section className="home-view">
-      <div className="hero">
-        <div>
-          <span className="eyebrow">
-            COMMUNITY PLATFORM
-          </span>
-
-          <h1>
-            Welcome back,{" "}
-            {user?.name?.split(
-              " "
-            )[0] || "friend"}.
-          </h1>
-
-          <p>
-            Connect, share, discover
-            products and stay close
-            to your community.
-          </p>
-        </div>
-
-        <UserAvatar
-          user={user}
-          size={58}
-        />
-      </div>
-
-      <div className="quick-grid">
-        <button
-          onClick={onCreatePost}
-        >
-          <span className="quick-icon blue">
-            <Icon
-              name="plus"
-              size={22}
-            />
-          </span>
-
-          <strong>
-            Create post
-          </strong>
-
-          <small>
-            Share with community
-          </small>
-        </button>
-
-        <button
-          onClick={onCreateProduct}
-        >
-          <span className="quick-icon green">
-            <Icon
-              name="box"
-              size={22}
-            />
-          </span>
-
-          <strong>
-            Sell product
-          </strong>
-
-          <small>
-            List something
-          </small>
-        </button>
-
-        <button
-          onClick={() =>
-            go("inbox")
-          }
-        >
-          <span className="quick-icon purple">
-            <Icon
-              name="message"
-              size={22}
-            />
-          </span>
-
-          <strong>
-            Messages
-          </strong>
-
-          <small>
-            Contact people
-          </small>
-        </button>
-
-        <button
-          onClick={() =>
-            go("community")
-          }
-        >
-          <span className="quick-icon orange">
-            <Icon
-              name="users"
-              size={22}
-            />
-          </span>
-
-          <strong>
-            Community
-          </strong>
-
-          <small>
-            See what's happening
-          </small>
-        </button>
-      </div>
-
-      <div className="stats-grid">
-        <Stat
-          label="Community posts"
-          value={stats.posts}
-        />
-
-        <Stat
-          label="Products"
-          value={stats.products}
-        />
-
-        <Stat
-          label="Messages"
-          value={stats.messages}
-        />
-      </div>
-
-      <section className="home-section">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">
-              COMMUNITY
-            </span>
-
-            <h2>
-              What's happening
-            </h2>
-          </div>
-
-          <button
-            className="text-button"
-            onClick={() =>
-              go("community")
-            }
-          >
-            View all
-          </button>
-        </div>
-
-        <MiniCommunityFeed
-          notify={notify}
-        />
-      </section>
-    </section>
-  );
-}
-
-function Stat({
-  label,
-  value,
-}) {
-  return (
-    <div className="stat-card">
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-/* ======================================================
-MINI COMMUNITY FEED
-====================================================== */
-
-function MiniCommunityFeed({
-  notify,
-}) {
-  const [posts, setPosts] =
-    useState([]);
-
-  useEffect(() => {
-    api("/feed?limit=3")
-      .then((data) => {
-        const list =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : [];
-
-        setPosts(
-          list.map(normalizePost)
-        );
-      })
-      .catch(() => {
-        setPosts(
-          read(
-            STORAGE.POSTS,
-            []
-          )
-            .map(normalizePost)
-            .slice(0, 3)
-        );
-      });
-  }, []);
-
-  if (!posts.length) {
-    return (
-      <div className="empty-mini">
-        No community posts yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="mini-feed">
-      {posts.map((post) => (
-        <div
-          className="mini-post"
-          key={post.id}
-        >
-          <UserAvatar
-            user={post.author}
-            size={35}
-          />
-
-          <div>
-            <strong>
-              {post.author
-                ?.username ||
-                post.author
-                  ?.name ||
-                "Community member"}
-            </strong>
-
-            <p>
-              {post.title ||
-                post.description ||
-                "Shared something with the community."}
-            </p>
-
-            <span>
-              {timeAgo(
-                post.createdAt
-              )}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ======================================================
-COMMUNITY
-====================================================== */
+/* =========================================================
+   COMMUNITY
+   ========================================================= */
 
 function CommunityView({
   user,
   notify,
   onCreate,
 }) {
-  const [posts, setPosts] =
-    useState([]);
+  const [posts, setPosts] = useState(() =>
+    readJSON(STORAGE.POSTS, []).map(normalizePost)
+  );
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [category, setCategory] = useState("All Posts");
 
-  const [loadingMore, setLoadingMore] =
-    useState(false);
+  useEffect(() => {
+    const handleDeleted = (event) => {
+      const deletedId = String(event.detail || "");
 
-  const [hasMore, setHasMore] =
-    useState(false);
+      setPosts((previous) =>
+        previous.filter(
+          (post) => String(post.id) !== deletedId
+        )
+      );
 
-  const [cursor, setCursor] =
-    useState(null);
+      const cached = readJSON(STORAGE.POSTS, []);
+      writeJSON(
+        STORAGE.POSTS,
+        cached.filter(
+          (post) => String(idOf(post)) !== deletedId
+        )
+      );
+    };
 
-  const [query, setQuery] =
-    useState("");
+    window.addEventListener(
+      "carebox-post-deleted",
+      handleDeleted
+    );
 
-  const [category, setCategory] =
-    useState("All");
-
-  const sentinel =
-    useRef(null);
+    return () =>
+      window.removeEventListener(
+        "carebox-post-deleted",
+        handleDeleted
+      );
+  }, []);
+  const [query, setQuery] = useState("");
+  const sentinel = useRef(null);
 
   const load = useCallback(
-    async (
-      cursorValue = null
-    ) => {
-      if (!cursorValue) {
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
+    async (cursorValue = null) => {
+      if (cursorValue) setLoadingMore(true);
+      else setLoading(true);
 
       try {
-        const endpoint =
-          cursorValue
-            ? `/feed?cursor=${encodeURIComponent(
-                cursorValue
-              )}&limit=10`
-            : "/feed?limit=10";
+        const endpoint = cursorValue
+          ? `/feed?cursor=${encodeURIComponent(
+              cursorValue
+            )}&limit=20`
+          : "/feed?limit=20";
 
-        const data =
-          await api(endpoint);
+        const data = await api(endpoint);
 
-        const incoming =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data.map(
-                normalizePost
-              )
-            : [];
+        const incoming = extractArray(data).map(normalizePost);
 
-        if (cursorValue) {
-          setPosts(
-            (previous) => {
-              const ids =
-                new Set(
-                  previous.map(
-                    (p) => p.id
-                  )
-                );
+        setPosts((previous) => {
+          if (!cursorValue) return incoming;
 
-              return [
-                ...previous,
-                ...incoming.filter(
-                  (p) =>
-                    !ids.has(p.id)
-                ),
-              ];
-            }
+          const ids = new Set(
+            previous.map((post) => String(post.id))
           );
-        } else {
-          setPosts(incoming);
 
-          write(
-            STORAGE.POSTS,
-            incoming
-          );
-        }
+          return [
+            ...previous,
+            ...incoming.filter(
+              (post) => !ids.has(String(post.id))
+            ),
+          ];
+        });
 
         setCursor(
-          data?.pagination
-            ?.nextCursor ||
-            null
+          data?.pagination?.nextCursor || null
+        );
+        setHasMore(
+          Boolean(data?.pagination?.hasMore)
         );
 
-        setHasMore(
-          Boolean(
-            data?.pagination
-              ?.hasMore
-          )
+        writeJSON(
+          STORAGE.POSTS,
+          cursorValue
+            ? [...readJSON(STORAGE.POSTS, []), ...incoming]
+            : incoming
         );
       } catch (error) {
-        console.warn(error);
+        console.warn("Feed unavailable:", error);
 
         if (!cursorValue) {
-          setPosts(
-            read(
-              STORAGE.POSTS,
-              []
-            ).map(
-              normalizePost
-            )
-          );
-        }
+          const cached = readJSON(
+            STORAGE.POSTS,
+            []
+          ).map(normalizePost);
 
-        if (!cursorValue) {
-          notify(
-            "Showing cached community data"
-          );
+          const localDrafts = readJSON(
+            STORAGE.LOCAL_POSTS,
+            []
+          ).map(normalizePost);
+
+          const combined = [
+            ...localDrafts,
+            ...cached,
+          ];
+
+          const unique = [];
+          const ids = new Set();
+
+          for (const post of combined) {
+            if (!post) continue;
+            const key = String(post.id);
+            if (ids.has(key)) continue;
+            ids.add(key);
+            unique.push(post);
+          }
+
+          setPosts(unique);
+
+          if (!unique.length) {
+            notify(
+              "Feed unavailable. You can still create a post when the server is reachable."
+            );
+          }
         }
       } finally {
         setLoading(false);
@@ -1681,126 +778,141 @@ function CommunityView({
   useEffect(() => {
     load();
 
-    const handler = () =>
-      load();
+    const refresh = () => load();
 
     window.addEventListener(
       "carebox-refresh",
-      handler
+      refresh
     );
 
     return () =>
       window.removeEventListener(
         "carebox-refresh",
-        handler
+        refresh
       );
   }, [load]);
 
   useEffect(() => {
-    const element =
-      sentinel.current;
+    const node = sentinel.current;
+    if (!node) return;
 
-    if (!element) return;
-
-    const observer =
-      new IntersectionObserver(
-        (entries) => {
-          if (
-            entries[0]?.isIntersecting &&
-            hasMore &&
-            !loadingMore
-          ) {
-            load(cursor);
-          }
-        },
-        {
-          rootMargin: "500px",
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0]?.isIntersecting &&
+          hasMore &&
+          !loadingMore
+        ) {
+          load(cursor);
         }
-      );
+      },
+      { rootMargin: "500px" }
+    );
 
-    observer.observe(element);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [cursor, hasMore, loadingMore, load]);
 
-    return () =>
-      observer.disconnect();
-  }, [
-    cursor,
-    hasMore,
-    loadingMore,
-    load,
-  ]);
-
-  const filtered =
-    posts.filter((post) => {
-      const text =
-        `${post.title} ${
-          post.description
-        } ${post.tags.join(
+  const filtered = useMemo(() => {
+    return posts.filter((post) => {
+      const searchable =
+        `${post.title} ${post.description} ${post.tags.join(
           " "
         )}`.toLowerCase();
 
-      const matchesSearch =
+      const matchesQuery =
         !query.trim() ||
-        text.includes(
-          query
-            .trim()
-            .toLowerCase()
+        searchable.includes(
+          query.trim().toLowerCase()
         );
 
-      if (!matchesSearch)
-        return false;
+      if (!matchesQuery) return false;
 
-      if (category === "All")
-        return true;
+      if (category === "All Posts") return true;
 
       return post.tags.some(
         (tag) =>
-          String(tag)
-            .toLowerCase() ===
+          String(tag).toLowerCase() ===
           category.toLowerCase()
       );
     });
+  }, [posts, query, category]);
+
+  const handleCreated = (post) => {
+    const normalized = normalizePost(post);
+
+    if (!normalized) return;
+
+    setPosts((previous) => [
+      normalized,
+      ...previous.filter(
+        (item) =>
+          String(item.id) !==
+          String(normalized.id)
+      ),
+    ]);
+
+    writeJSON(STORAGE.POSTS, [
+      normalized,
+      ...readJSON(STORAGE.POSTS, []).filter(
+        (item) =>
+          String(idOf(item)) !==
+          String(normalized.id)
+      ),
+    ]);
+  };
 
   return (
-    <section className="content-view">
-      <PageHeading
-        eyebrow="COMMUNITY"
-        title="Community"
-        description="Share updates, discover opportunities and connect with people."
-        action={
-          <button
-            className="primary-button"
-            onClick={onCreate}
-          >
-            <Icon
-              name="plus"
-              size={17}
-            />
-            Create post
-          </button>
-        }
-      />
+    <section className="community-page">
+      <section className="community-mobile-header">
+        <div>
+          <span className="eyebrow">COMMUNITY</span>
+          <h1>CareBox Community</h1>
+        </div>
+
+        <button
+          className="mobile-refresh"
+          onClick={() => load()}
+          aria-label="Refresh community"
+        >
+          <RefreshCw size={18} />
+        </button>
+      </section>
+
+      <section className="composer">
+        <UserAvatar user={user} size={40} />
+
+        <button
+          className="mind-input"
+          onClick={onCreate}
+        >
+          What's on your mind?
+        </button>
+
+        <button
+          className="gallery-button"
+          onClick={onCreate}
+          aria-label="Add image"
+        >
+          <ImageIcon size={21} />
+        </button>
+      </section>
 
       <div className="community-tools">
-        <div className="search-field">
-          <Icon
-            name="search"
-            size={17}
-          />
-
+        <div className="community-search">
+          <Search size={16} />
           <input
             value={query}
             onChange={(e) =>
-              setQuery(
-                e.target.value
-              )
+              setQuery(e.target.value)
             }
             placeholder="Search posts..."
           />
         </div>
 
-        <div className="filter-row">
+        <div className="category-scroll">
           {[
-            "All",
+            "All Posts",
             "Donate",
             "Sell",
             "Buy",
@@ -1809,14 +921,10 @@ function CommunityView({
           ].map((item) => (
             <button
               key={item}
-              className={
-                category === item
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() =>
-                setCategory(item)
-              }
+              className={`category-pill ${
+                category === item ? "active" : ""
+              }`}
+              onClick={() => setCategory(item)}
             >
               {item}
             </button>
@@ -1828,20 +936,18 @@ function CommunityView({
         <PostSkeletons />
       ) : filtered.length ? (
         <div className="feed">
-          {filtered.map(
-            (post) => (
-              <CommunityPost
-                key={post.id}
-                post={post}
-                user={user}
-                notify={notify}
-              />
-            )
-          )}
+          {filtered.map((post) => (
+            <CommunityPost
+              key={post.id}
+              post={post}
+              user={user}
+              notify={notify}
+            />
+          ))}
         </div>
       ) : (
         <EmptyState
-          icon="users"
+          icon={<Users size={31} />}
           title={
             query
               ? "No matching posts"
@@ -1850,7 +956,7 @@ function CommunityView({
           description={
             query
               ? "Try another search."
-              : "Be the first person to share something."
+              : "Be the first person to share something with the community."
           }
           action={
             !query && (
@@ -1858,6 +964,7 @@ function CommunityView({
                 className="primary-button"
                 onClick={onCreate}
               >
+                <Plus size={16} />
                 Create post
               </button>
             )
@@ -1869,336 +976,407 @@ function CommunityView({
         ref={sentinel}
         className="feed-end"
       >
-        {loadingMore &&
-          "Loading more..."}
-
-        {!hasMore &&
-          posts.length > 0 &&
-          "You're all caught up."}
+        {loadingMore && (
+          <span>Loading more...</span>
+        )}
+        {!hasMore && posts.length > 0 && (
+          <span>You're all caught up.</span>
+        )}
       </div>
+
+      <div className="sr-only">
+        {posts.length} posts loaded
+      </div>
+
+      {/* The callback is intentionally retained for newly-created posts
+          by listening to this event from the modal. */}
+      <PostCreationBridge
+        onCreated={handleCreated}
+      />
     </section>
   );
 }
 
-/* ======================================================
-COMMUNITY POST
-====================================================== */
+/* =========================================================
+   POST CREATION BRIDGE
+   ========================================================= */
+
+function PostCreationBridge({ onCreated }) {
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.detail) onCreated(event.detail);
+    };
+
+    window.addEventListener(
+      "carebox-post-created",
+      handler
+    );
+
+    return () =>
+      window.removeEventListener(
+        "carebox-post-created",
+        handler
+      );
+  }, [onCreated]);
+
+  return null;
+}
+
+/* =========================================================
+   COMMUNITY POST
+   ========================================================= */
 
 function CommunityPost({
   post,
   user,
   notify,
 }) {
-  const [liked, setLiked] =
-    useState(
-      Boolean(post.likedByMe)
-    );
-
-  const [likeCount, setLikeCount] =
-    useState(
-      Number(
-        post.likeCount || 0
-      )
-    );
-
+  const [liked, setLiked] = useState(
+    Boolean(post.liked)
+  );
+  const [likeCount, setLikeCount] = useState(
+    Number(post.likeCount || 0)
+  );
   const [commentCount, setCommentCount] =
-    useState(
-      Number(
-        post.commentCount || 0
-      )
+    useState(Number(post.commentCount || 0));
+  const [shareCount, setShareCount] =
+    useState(Number(post.shareCount || 0));
+
+  const [saved, setSaved] = useState(() => {
+    const map = readJSON(STORAGE.SAVED, {});
+    return Boolean(
+      post.saved || map[String(post.id)]
     );
+  });
 
-  const [comments, setComments] =
-    useState([]);
-
+  const [comments, setComments] = useState([]);
   const [commentOpen, setCommentOpen] =
     useState(false);
-
   const [commentText, setCommentText] =
     useState("");
-
-  const [saved, setSaved] =
-    useState(
-      Boolean(
-        read(
-          STORAGE.SAVED,
-          {}
-        )[post.id]
-      )
-    );
-
-  const [menuOpen, setMenuOpen] =
-    useState(false);
-
   const [expanded, setExpanded] =
     useState(false);
+  const [menuOpen, setMenuOpen] =
+    useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const loadComments =
-    async () => {
-      try {
-        const data =
-          await api(
-            `/posts/${post.id}/comments`
-          );
+  const text = post.description || "";
+  const long = text.length > 280;
+  const displayText =
+    !long || expanded
+      ? text
+      : `${text.slice(0, 280)}...`;
 
-        const list =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : Array.isArray(data)
-            ? data
-            : [];
+  const author = normalizeUser(post.author);
+  const owner = isSameUser(author, user);
 
-        setComments(list);
-      } catch {}
-    };
-
-  const toggleLike =
-    async () => {
-      const next = !liked;
-
-      setLiked(next);
-
-      setLikeCount(
-        (value) =>
-          Math.max(
-            0,
-            value +
-              (next ? 1 : -1)
-          )
+  const loadComments = async () => {
+    try {
+      const data = await api(
+        `/posts/${post.id}/comments`
       );
-
-      try {
-        await api(
-          `/posts/${post.id}/like`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              liked: next,
-            }),
-          }
-        );
-      } catch {
-        setLiked(!next);
-
-        setLikeCount(
-          (value) =>
-            Math.max(
-              0,
-              value +
-                (next
-                  ? -1
-                  : 1)
-            )
-        );
-
-        notify(
-          "Could not update like"
-        );
-      }
-    };
-
-  const toggleComments =
-    async () => {
-      const next =
-        !commentOpen;
-
-      setCommentOpen(next);
-
-      if (
-        next &&
-        !comments.length
-      ) {
-        await loadComments();
-      }
-    };
-
-  const addComment =
-    async () => {
-      const text =
-        commentText.trim();
-
-      if (!text) return;
-
-      const optimistic = {
-        id: `temp-${Date.now()}`,
-        content: text,
-        createdAt:
-          new Date().toISOString(),
-        author: user,
-      };
-
       setComments(
-        (items) => [
-          ...items,
-          optimistic,
-        ]
+        extractArray(data).map((comment) => ({
+          ...comment,
+          author: normalizeUser(
+            comment.author ||
+              comment.user ||
+              comment.owner
+          ),
+        }))
       );
+    } catch {
+      notify("Could not load comments");
+    }
+  };
 
-      setCommentText("");
+  const toggleLike = async () => {
+    const next = !liked;
 
-      setCommentCount(
-        (value) => value + 1
+    setLiked(next);
+    setLikeCount((value) =>
+      Math.max(0, value + (next ? 1 : -1))
+    );
+
+    try {
+      await api(`/posts/${post.id}/like`, {
+        method: "POST",
+        body: JSON.stringify({
+          liked: next,
+        }),
+      });
+    } catch {
+      setLiked(!next);
+      setLikeCount((value) =>
+        Math.max(
+          0,
+          value + (next ? -1 : 1)
+        )
       );
+      notify("Could not update like");
+    }
+  };
 
-      try {
-        const data =
-          await api(
-            `/posts/${post.id}/comments`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                content: text,
-              }),
-            }
-          );
+  const toggleComments = async () => {
+    const next = !commentOpen;
+    setCommentOpen(next);
 
-        const savedComment =
-          data?.data ||
-          data?.comment;
+    if (next) {
+      await loadComments();
+    }
+  };
 
-        if (savedComment) {
-          setComments(
-            (items) =>
-              items.map(
-                (item) =>
-                  item.id ===
-                  optimistic.id
-                    ? savedComment
-                    : item
-              )
-          );
-        }
-      } catch {
-        setComments(
-          (items) =>
-            items.filter(
-              (item) =>
-                item.id !==
-                optimistic.id
-            )
-        );
+  const addComment = async () => {
+    const value = commentText.trim();
+    if (!value || busy) return;
 
-        setCommentCount(
-          (value) =>
-            Math.max(
-              0,
-              value - 1
-            )
-        );
+    setBusy(true);
 
-        notify(
-          "Comment could not be saved"
-        );
-      }
+    const optimistic = {
+      id: `temp-${Date.now()}`,
+      content: value,
+      createdAt: new Date().toISOString(),
+      author: user,
     };
 
-  const toggleSave = () => {
+    setComments((items) => [
+      ...items,
+      optimistic,
+    ]);
+    setCommentText("");
+    setCommentCount((count) => count + 1);
+
+    try {
+      const data = await api(
+        `/posts/${post.id}/comments`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            content: value,
+          }),
+        }
+      );
+
+      const saved =
+        data?.data || data?.comment;
+
+      if (saved) {
+        setComments((items) =>
+          items.map((item) =>
+            item.id === optimistic.id
+              ? {
+                  ...saved,
+                  author: normalizeUser(
+                    saved.author ||
+                      saved.user ||
+                      user
+                  ),
+                }
+              : item
+          )
+        );
+      }
+    } catch {
+      setComments((items) =>
+        items.filter(
+          (item) =>
+            item.id !== optimistic.id
+        )
+      );
+      setCommentCount((count) =>
+        Math.max(0, count - 1)
+      );
+      notify("Comment could not be saved");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSave = async () => {
     const next = !saved;
 
     setSaved(next);
 
-    const savedMap =
-      read(
-        STORAGE.SAVED,
-        {}
-      );
-
-    if (next) {
-      savedMap[post.id] = true;
-    } else {
-      delete savedMap[post.id];
-    }
-
-    write(
+    const map = readJSON(
       STORAGE.SAVED,
-      savedMap
+      {}
     );
 
-    api(
-      `/posts/${post.id}/save`,
-      {
+    if (next) map[String(post.id)] = true;
+    else delete map[String(post.id)];
+
+    writeJSON(STORAGE.SAVED, map);
+
+    try {
+      await api(`/posts/${post.id}/save`, {
         method: "POST",
         body: JSON.stringify({
           saved: next,
         }),
-      }
-    ).catch(() => {});
+      });
+
+      notify(
+        next
+          ? "Post saved"
+          : "Post removed from saved"
+      );
+    } catch {
+      notify(
+        next
+          ? "Saved locally; server could not be reached"
+          : "Removed locally"
+      );
+    }
   };
 
-  const deletePost =
-    async () => {
-      if (
-        !window.confirm(
-          "Delete this post?"
-        )
-      )
-        return;
-
-      try {
-        await api(
-          `/posts/${post.id}`,
-          {
-            method: "DELETE",
-          }
-        );
-
-        window.dispatchEvent(
-          new Event(
-            "carebox-refresh"
-          )
-        );
-
-        notify(
-          "Post deleted"
-        );
-      } catch {
-        notify(
-          "Could not delete post"
-        );
-      }
+  const sharePost = async () => {
+    const shareData = {
+      title:
+        post.title ||
+        "CareBox Community post",
+      text: text || post.title || "",
+      url: window.location.href,
     };
 
-  const text =
-    post.description || "";
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(
+          window.location.href
+        );
+        notify("Post link copied");
+      }
 
-  const long =
-    text.length > 280;
+      setShareCount((count) => count + 1);
 
-  const displayText =
-    !long || expanded
-      ? text
-      : `${text.slice(
-          0,
-          280
-        )}...`;
+      api(`/posts/${post.id}/share`, {
+        method: "POST",
+      }).catch(() => {});
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        notify("Could not share post");
+      }
+    }
+  };
 
-  const author =
-    post.author || {};
+  const deletePost = async () => {
+    if (!owner) return;
 
-  const isOwner =
-    String(
-      author.id ||
-        author._id ||
-        ""
-    ) ===
-      String(
-        user?.id ||
-          user?._id ||
-          "never"
-      ) ||
-    String(
-      author.username ||
-        ""
-    ).toLowerCase() ===
-      String(
-        user?.username ||
-          ""
-      ).toLowerCase();
+    const confirmed = window.confirm(
+      "Delete this post permanently?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await api(`/posts/${post.id}`, {
+        method: "DELETE",
+      });
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "carebox-post-deleted",
+          {
+            detail: post.id,
+          }
+        )
+      );
+
+      notify("Post deleted");
+    } catch {
+      notify("Could not delete post");
+    }
+  };
+
+  const savePostAsImage = async () => {
+    try {
+      const element = document.getElementById(
+        `post-${post.id}`
+      );
+
+      if (!element) {
+        notify("Post image could not be prepared");
+        return;
+      }
+
+      /*
+        Uses browser canvas APIs without requiring html2canvas.
+        Images are loaded with CORS enabled when possible.
+        If the remote server blocks CORS, the text-only export still
+        works, while the original post image remains available in the UI.
+      */
+      const canvas = await renderPostToCanvas(
+        element
+      );
+
+      const blob = await new Promise(
+        (resolve) =>
+          canvas.toBlob(
+            resolve,
+            "image/png",
+            0.95
+          )
+      );
+
+      if (!blob) {
+        throw new Error("Canvas export failed");
+      }
+
+      const file = new File(
+        [blob],
+        `carebox-post-${post.id}.png`,
+        { type: "image/png" }
+      );
+
+      if (
+        navigator.canShare &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          title:
+            post.title ||
+            "CareBox Community",
+          files: [file],
+        });
+        notify("Post image ready to share");
+        return;
+      }
+
+      const url =
+        URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = url;
+      link.download = `carebox-post-${post.id}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(url);
+
+      notify("Post saved as PNG");
+    } catch (error) {
+      console.error(error);
+      notify(
+        "Image export failed. Try again or allow image loading."
+      );
+    }
+  };
+
+  /*
+    Deletion is broadcast to CommunityView so React removes the post from
+    state rather than only removing its DOM node. This keeps the UI and
+    persistent feed cache consistent.
+  */
 
   return (
-    <article className="post">
+    <article
+      id={`post-${post.id}`}
+      className="post"
+    >
       <div className="post-head">
         <UserAvatar
           user={author}
@@ -2207,31 +1385,33 @@ function CommunityPost({
 
         <div className="post-author">
           <strong>
-            {author.name ||
-              author.username ||
+            {author?.name ||
+              author?.username ||
               "Community member"}
           </strong>
 
           <span>
-            {timeAgo(
-              post.createdAt
-            )}{" "}
-            · Public
+            {timeAgo(post.createdAt)}
+            {" · "}
+            <Globe2
+              size={10}
+              style={{
+                display: "inline",
+                verticalAlign: "middle",
+              }}
+            />
+            {" Public"}
           </span>
         </div>
 
         <button
           className="more"
           onClick={() =>
-            setMenuOpen(
-              (value) => !value
-            )
+            setMenuOpen((value) => !value)
           }
+          aria-label="Post options"
         >
-          <Icon
-            name="more"
-            size={20}
-          />
+          <MoreHorizontal size={20} />
         </button>
 
         {menuOpen && (
@@ -2242,61 +1422,59 @@ function CommunityPost({
                 setMenuOpen(false);
               }}
             >
-              <Icon
-                name="save"
+              <Bookmark
                 size={16}
+                fill={
+                  saved
+                    ? "currentColor"
+                    : "none"
+                }
               />
               {saved
-                ? "Unsave"
+                ? "Unsave post"
                 : "Save post"}
             </button>
 
             <button
               onClick={() => {
-                navigator.clipboard
-                  ?.writeText(
-                    window.location.href
-                  );
-
+                savePostAsImage();
                 setMenuOpen(false);
-
-                notify(
-                  "Post link copied"
-                );
               }}
             >
-              <Icon
-                name="share"
-                size={16}
-              />
-              Share
+              <Download size={16} />
+              Save as image
             </button>
 
-            {isOwner && (
+            <button
+              onClick={() => {
+                sharePost();
+                setMenuOpen(false);
+              }}
+            >
+              <Share2 size={16} />
+              Reshare / share
+            </button>
+
+            {owner && (
               <button
                 className="danger"
-                onClick={
-                  deletePost
-                }
+                onClick={() => {
+                  setMenuOpen(false);
+                  deletePost();
+                }}
               >
-                <Icon
-                  name="trash"
-                  size={16}
-                />
-                Delete
+                <Trash2 size={16} />
+                Delete post
               </button>
             )}
           </div>
         )}
       </div>
 
-      {(post.title ||
-        text) && (
+      {(post.title || text) && (
         <div className="post-body">
           {post.title && (
-            <h3>
-              {post.title}
-            </h3>
+            <h3>{post.title}</h3>
           )}
 
           {text && (
@@ -2308,8 +1486,7 @@ function CommunityPost({
                   className="see-more"
                   onClick={() =>
                     setExpanded(
-                      (value) =>
-                        !value
+                      (value) => !value
                     )
                   }
                 >
@@ -2332,12 +1509,24 @@ function CommunityPost({
               "Community post"
             }
             loading="lazy"
+            crossOrigin="anonymous"
           />
         </div>
       )}
 
-      {post.tags.length >
-        0 && (
+      {post.attachment && (
+        <a
+          className="post-attachment"
+          href={post.attachment}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Download size={16} />
+          Open attachment
+        </a>
+      )}
+
+      {post.tags.length > 0 && (
         <div className="tags">
           {post.tags.map(
             (tag, index) => (
@@ -2352,26 +1541,36 @@ function CommunityPost({
       )}
 
       <div className="engagement-row">
-        <span>
-          {likeCount} likes
+        <span className="engagement-like">
+          <Heart
+            size={12}
+            fill="currentColor"
+          />
+          {likeCount}
         </span>
 
         <span>
-          {commentCount} comments
+          {commentCount}{" "}
+          {commentCount === 1
+            ? "comment"
+            : "comments"}
+          {shareCount > 0 &&
+            ` · ${shareCount} shares`}
         </span>
       </div>
 
       <div className="post-actions">
         <button
-          className={
-            liked ? "liked" : ""
-          }
+          className={liked ? "liked" : ""}
           onClick={toggleLike}
         >
-          <Icon
-            name="heart"
+          <Heart
             size={18}
-            filled={liked}
+            fill={
+              liked
+                ? "currentColor"
+                : "none"
+            }
           />
           Like
         </button>
@@ -2382,85 +1581,49 @@ function CommunityPost({
               ? "active"
               : ""
           }
-          onClick={
-            toggleComments
-          }
+          onClick={toggleComments}
         >
-          <Icon
-            name="comment"
-            size={18}
-          />
+          <MessageCircle size={18} />
           Comment
         </button>
 
-        <button
-          onClick={() => {
-            navigator.share?.({
-              title:
-                post.title ||
-                "CareBox Community",
-              text:
-                text ||
-                post.title,
-              url:
-                window.location
-                  .href,
-            });
-
-            notify(
-              "Share opened"
-            );
-          }}
-        >
-          <Icon
-            name="send"
-            size={18}
-          />
+        <button onClick={sharePost}>
+          <Send size={18} />
           Share
         </button>
       </div>
 
       {commentOpen && (
         <div className="comments">
-          {comments.map(
-            (comment) => (
-              <div
-                className="comment"
-                key={comment.id}
-              >
-                <UserAvatar
-                  user={
-                    comment.author
-                  }
-                  size={30}
-                />
+          {comments.map((comment) => (
+            <div
+              className="comment"
+              key={comment.id || comment._id}
+            >
+              <UserAvatar
+                user={comment.author}
+                size={30}
+              />
 
-                <div className="comment-bubble">
-                  <strong>
-                    {comment
-                      .author
-                      ?.name ||
-                      comment
-                        .author
-                        ?.username ||
-                      "User"}
-                  </strong>
+              <div className="comment-bubble">
+                <strong>
+                  {comment.author?.name ||
+                    comment.author?.username ||
+                    "User"}
+                </strong>
 
-                  <p>
-                    {
-                      comment.content
-                    }
-                  </p>
+                <p>
+                  {comment.content}
+                </p>
 
-                  <span>
-                    {timeAgo(
-                      comment.createdAt
-                    )}
-                  </span>
-                </div>
+                <span>
+                  {timeAgo(
+                    comment.createdAt
+                  )}
+                </span>
               </div>
-            )
-          )}
+            </div>
+          ))}
 
           {!comments.length && (
             <div className="no-comments">
@@ -2482,10 +1645,7 @@ function CommunityPost({
                 )
               }
               onKeyDown={(e) => {
-                if (
-                  e.key ===
-                  "Enter"
-                ) {
+                if (e.key === "Enter") {
                   addComment();
                 }
               }}
@@ -2493,14 +1653,11 @@ function CommunityPost({
             />
 
             <button
-              onClick={
-                addComment
-              }
+              onClick={addComment}
+              disabled={busy}
+              aria-label="Send comment"
             >
-              <Icon
-                name="send"
-                size={16}
-              />
+              <Send size={16} />
             </button>
           </div>
         </div>
@@ -2509,93 +1666,75 @@ function CommunityPost({
   );
 }
 
-/* ======================================================
-CREATE POST MODAL
-====================================================== */
+/* =========================================================
+   CREATE POST
+   ========================================================= */
 
 function CreatePostModal({
   user,
+  notify,
   onClose,
-  onCreated,
 }) {
-  const [title, setTitle] =
-    useState("");
-
+  const [title, setTitle] = useState("");
   const [description, setDescription] =
     useState("");
-
-  const [tags, setTags] =
-    useState("");
-
-  const [image, setImage] =
-    useState(null);
-
+  const [tags, setTags] = useState("");
+  const [image, setImage] = useState(null);
   const [preview, setPreview] =
     useState("");
-
   const [saving, setSaving] =
     useState(false);
+  const [error, setError] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const fileRef = useRef(null);
 
-  const fileRef =
-    useRef(null);
-
-  const selectImage = (e) => {
+  const selectImage = (event) => {
     const file =
-      e.target.files?.[0];
+      event.target.files?.[0];
 
     if (!file) return;
 
-    if (
-      !file.type.startsWith(
-        "image/"
-      )
-    ) {
+    if (!file.type.startsWith("image/")) {
       setError(
-        "Please choose an image."
+        "Please select a valid image file."
       );
       return;
     }
 
-    if (
-      file.size >
-      10 * 1024 * 1024
-    ) {
+    if (file.size > MAX_IMAGE_BYTES) {
       setError(
         "Image must be smaller than 10MB."
       );
       return;
     }
 
+    setError("");
     setImage(file);
 
-    const reader =
-      new FileReader();
+    const reader = new FileReader();
 
     reader.onload = () =>
       setPreview(
-        String(
-          reader.result || ""
-        )
+        String(reader.result || "")
       );
 
     reader.readAsDataURL(file);
   };
 
-  const submit = async (
-    e
-  ) => {
-    e.preventDefault();
+  const submit = async (event) => {
+    event.preventDefault();
+
+    const cleanTitle = title.trim();
+    const cleanDescription =
+      description.trim();
 
     if (
-      !title.trim() &&
-      !description.trim() &&
+      !cleanTitle &&
+      !cleanDescription &&
       !image
     ) {
       setError(
-        "Add text or an image."
+        "Add text or an image before publishing."
       );
       return;
     }
@@ -2607,49 +1746,156 @@ function CreatePostModal({
       const form =
         new FormData();
 
-      if (title.trim())
+      if (cleanTitle) {
         form.append(
           "title",
-          title.trim()
+          cleanTitle.slice(
+            0,
+            POST_TITLE_LIMIT
+          )
         );
+      }
 
-      if (
-        description.trim()
-      )
+      if (cleanDescription) {
         form.append(
           "description",
-          description.trim()
+          cleanDescription.slice(
+            0,
+            POST_TEXT_LIMIT
+          )
         );
+      }
 
-      if (image)
-        form.append(
-          "image",
-          image
-        );
+      /*
+        Image is OPTIONAL. No empty image field is sent.
+      */
+      if (image) {
+        form.append("image", image);
+      }
 
       form.append(
         "tags",
         JSON.stringify(
           tags
             .split(",")
-            .map((item) =>
-              item.trim()
+            .map((tag) =>
+              tag.trim()
             )
             .filter(Boolean)
         )
       );
 
-      await api("/posts", {
-        method: "POST",
-        body: form,
-      });
+      const response =
+        await api("/posts", {
+          method: "POST",
+          body: form,
+        });
 
-      onCreated();
+      const serverPost =
+        response?.data ||
+        response?.post;
+
+      /*
+        Server response is authoritative. This is what makes the
+        post persistent across sessions/devices when the backend
+        stores it in MongoDB and the image in object storage.
+      */
+      const fallbackPost = {
+        id: `local-${Date.now()}`,
+        title: cleanTitle,
+        description:
+          cleanDescription,
+        tags: tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        image: preview,
+        author: user,
+        createdAt:
+          new Date().toISOString(),
+        likeCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+      };
+
+      const created =
+        normalizePost(
+          serverPost ||
+            fallbackPost
+        );
+
+      if (created) {
+        window.dispatchEvent(
+          new CustomEvent(
+            "carebox-post-created",
+            {
+              detail: created,
+            }
+          )
+        );
+      }
+
+      /*
+        Remove any offline draft that has the same title/content after a
+        successful server publication, preventing duplicate display.
+      */
+      const offlineDrafts = readJSON(
+        STORAGE.LOCAL_POSTS,
+        []
+      );
+
+      writeJSON(
+        STORAGE.LOCAL_POSTS,
+        offlineDrafts.filter(
+          (draft) =>
+            !(
+              String(draft?.title || "") ===
+                String(created?.title || "") &&
+              String(draft?.description || "") ===
+                String(created?.description || "")
+            )
+        )
+      );
+
+      notify("Post published successfully");
       onClose();
     } catch (error) {
+      console.error(error);
+
+      /*
+        Do NOT pretend localStorage is cloud persistence.
+        If the API is unavailable, preserve a local draft so the
+        user's work is not lost and clearly tell them it is local.
+      */
+      const localDraft = normalizePost({
+        id: `offline-${Date.now()}`,
+        title: cleanTitle,
+        description:
+          cleanDescription,
+        tags: tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        image: preview,
+        author: user,
+        createdAt:
+          new Date().toISOString(),
+        likeCount: 0,
+        commentCount: 0,
+      });
+
+      const drafts = readJSON(
+        STORAGE.LOCAL_POSTS,
+        []
+      );
+
+      writeJSON(
+        STORAGE.LOCAL_POSTS,
+        [localDraft, ...drafts]
+      );
+
       setError(
-        error.message ||
-          "Unable to publish post."
+        `${error.message}. The post was saved only on this device and must be published again when the server is available.`
       );
     } finally {
       setSaving(false);
@@ -2657,573 +1903,349 @@ function CreatePostModal({
   };
 
   return (
-    <Modal
-      title="Create post"
-      subtitle="Share something with your community."
-      onClose={onClose}
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
     >
-      <form
-        className="modal-form"
-        onSubmit={submit}
+      <section
+        className="modal create-post-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create post"
       >
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">
+              COMMUNITY
+            </span>
+            <h2>Create post</h2>
+            <p>
+              Share something with the community.
+            </p>
+          </div>
+
+          <button
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
         {error && (
           <div className="form-error">
             {error}
           </div>
         )}
 
-        <div
-          className="image-picker"
-          onClick={() =>
-            fileRef.current?.click()
-          }
+        <form
+          className="modal-form"
+          onSubmit={submit}
         >
-          {preview ? (
-            <img
-              src={preview}
-              alt=""
-            />
-          ) : (
-            <>
-              <Icon
-                name="image"
-                size={30}
-              />
-
-              <strong>
-                Add a photo
-              </strong>
-
-              <span>
-                Optional
-              </span>
-            </>
-          )}
-        </div>
-
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={
-            selectImage
-          }
-        />
-
-        <input
-          className="form-input"
-          value={title}
-          onChange={(e) =>
-            setTitle(
-              e.target.value
-            )
-          }
-          placeholder="Post title"
-          maxLength={160}
-        />
-
-        <textarea
-          className="form-input textarea"
-          value={description}
-          onChange={(e) =>
-            setDescription(
-              e.target.value
-            )
-          }
-          placeholder="What's on your mind?"
-          maxLength={5000}
-        />
-
-        <input
-          className="form-input"
-          value={tags}
-          onChange={(e) =>
-            setTags(
-              e.target.value
-            )
-          }
-          placeholder="Tags: donate, jobs, education"
-        />
-
-        <div className="modal-user">
-          <UserAvatar
-            user={user}
-            size={35}
-          />
-
-          <div>
-            <strong>
-              {user?.name ||
-                user?.username ||
-                "You"}
-            </strong>
-
-            <span>
-              Public
-            </span>
-          </div>
-        </div>
-
-        <button
-          className="primary-button full"
-          disabled={saving}
-        >
-          {saving
-            ? "Publishing..."
-            : "Publish post"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
-/* ======================================================
-PRODUCTS
-====================================================== */
-
-function ProductsView({
-  user,
-  notify,
-  onCreate,
-}) {
-  const [products, setProducts] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [query, setQuery] =
-    useState("");
-
-  const [category, setCategory] =
-    useState("All");
-
-  const load = useCallback(
-    async () => {
-      setLoading(true);
-
-      try {
-        const data =
-          await api(
-            "/products?limit=30"
-          );
-
-        const list =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : Array.isArray(data)
-            ? data
-            : [];
-
-        setProducts(
-          list.map(
-            normalizeProduct
-          )
-        );
-
-        write(
-          STORAGE.PRODUCTS,
-          list
-        );
-      } catch {
-        setProducts(
-          read(
-            STORAGE.PRODUCTS,
-            []
-          ).map(
-            normalizeProduct
-          )
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    load();
-
-    const handler = () =>
-      load();
-
-    window.addEventListener(
-      "carebox-refresh",
-      handler
-    );
-
-    return () =>
-      window.removeEventListener(
-        "carebox-refresh",
-        handler
-      );
-  }, [load]);
-
-  const filtered =
-    products.filter(
-      (product) => {
-        const matchesSearch =
-          !query.trim() ||
-          `${product.name} ${product.description} ${product.category}`
-            .toLowerCase()
-            .includes(
-              query
-                .trim()
-                .toLowerCase()
-            );
-
-        const matchesCategory =
-          category === "All" ||
-          product.category ===
-            category;
-
-        return (
-          matchesSearch &&
-          matchesCategory
-        );
-      }
-    );
-
-  return (
-    <section className="content-view">
-      <PageHeading
-        eyebrow="MARKETPLACE"
-        title="Products"
-        description="Discover products and opportunities from your community."
-        action={
-          <button
-            className="primary-button"
-            onClick={onCreate}
+          <div
+            className="image-picker"
+            onClick={() =>
+              fileRef.current?.click()
+            }
           >
-            <Icon
-              name="plus"
-              size={17}
-            />
-            Sell something
-          </button>
-        }
-      />
+            {preview ? (
+              <img
+                src={preview}
+                alt="Selected preview"
+              />
+            ) : (
+              <>
+                <ImageIcon size={30} />
+                <strong>
+                  Add a photo
+                </strong>
+                <span>
+                  Optional · up to 10MB
+                </span>
+              </>
+            )}
+          </div>
 
-      <div className="community-tools">
-        <div className="search-field">
-          <Icon
-            name="search"
-            size={17}
+          <input
+            ref={fileRef}
+            hidden
+            type="file"
+            accept="image/*"
+            onChange={selectImage}
           />
 
           <input
-            value={query}
+            className="form-input"
+            value={title}
             onChange={(e) =>
-              setQuery(
+              setTitle(e.target.value)
+            }
+            placeholder="Post title (optional)"
+            maxLength={POST_TITLE_LIMIT}
+          />
+
+          <textarea
+            className="form-input textarea"
+            value={description}
+            onChange={(e) =>
+              setDescription(
                 e.target.value
               )
             }
-            placeholder="Search products..."
+            placeholder="What's on your mind?"
+            maxLength={POST_TEXT_LIMIT}
           />
-        </div>
 
-        <div className="filter-row">
-          {[
-            "All",
-            "Clothes",
-            "Books",
-            "Electronics",
-            "Food",
-            "Services",
-          ].map((item) => (
-            <button
-              key={item}
-              className={
-                category === item
-                  ? "filter active"
-                  : "filter"
-              }
-              onClick={() =>
-                setCategory(item)
-              }
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
+          <input
+            className="form-input"
+            value={tags}
+            onChange={(e) =>
+              setTags(e.target.value)
+            }
+            placeholder="Tags: donate, education, jobs"
+          />
 
-      {loading ? (
-        <ProductSkeletons />
-      ) : filtered.length ? (
-        <div className="product-grid">
-          {filtered.map(
-            (product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                user={user}
-                notify={notify}
-              />
-            )
-          )}
-        </div>
-      ) : (
-        <EmptyState
-          icon="box"
-          title="No products found"
-          description="Try another search or category."
-          action={
-            <button
-              className="primary-button"
-              onClick={onCreate}
-            >
-              List a product
-            </button>
-          }
-        />
-      )}
-    </section>
+          <div className="modal-user">
+            <UserAvatar
+              user={user}
+              size={36}
+            />
+
+            <div>
+              <strong>
+                {user?.name ||
+                  user?.username ||
+                  "You"}
+              </strong>
+              <span>
+                @{user?.username ||
+                  makeUsernameFromEmail(
+                    user?.email
+                  )}
+              </span>
+            </div>
+          </div>
+
+          <button
+            className="primary-button full"
+            disabled={saving}
+          >
+            {saving
+              ? "Publishing..."
+              : "Publish post"}
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }
 
-function ProductCard({
-  product,
+/* =========================================================
+   PROFILE
+   ========================================================= */
+
+function ProfileView({
   user,
+  setUser,
   notify,
 }) {
-  const [contacting, setContacting] =
+  const [editing, setEditing] =
     useState(false);
 
-  const contactSeller =
-    async () => {
-      const sellerId =
-        product.seller?.id ||
-        product.seller?._id;
-
-      if (!sellerId) {
-        notify(
-          "Seller contact unavailable"
-        );
-        return;
-      }
-
-      setContacting(true);
-
-      try {
-        await api(
-          "/conversations",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              participantId:
-                sellerId,
-              productId:
-                product.id,
-            }),
-          }
-        );
-
-        notify(
-          "Conversation started"
-        );
-      } catch {
-        notify(
-          "Could not contact seller"
-        );
-      } finally {
-        setContacting(false);
-      }
-    };
-
-  return (
-    <article className="product-card">
-      <div className="product-image">
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.name}
-          />
-        ) : (
-          <Icon
-            name="box"
-            size={40}
-          />
-        )}
-      </div>
-
-      <div className="product-info">
-        <span className="product-category">
-          {product.category}
-        </span>
-
-        <h3>
-          {product.name}
-        </h3>
-
-        <p>
-          {product.description ||
-            "No description provided."}
-        </p>
-
-        <strong className="price">
-          KES{" "}
-          {product.price.toLocaleString()}
-        </strong>
-
-        <div className="seller">
-          <UserAvatar
-            user={
-              product.seller
-            }
-            size={27}
-          />
-
-          <span>
-            {product.seller
-              ?.name ||
-              product.seller
-                ?.username ||
-              "Community seller"}
-          </span>
-        </div>
-
-        <button
-          className="secondary-button full"
-          disabled={contacting}
-          onClick={
-            contactSeller
-          }
-        >
-          <Icon
-            name="message"
-            size={16}
-          />
-
-          {contacting
-            ? "Opening..."
-            : "Contact seller"}
-        </button>
-      </div>
-    </article>
-  );
-}
-
-/* ======================================================
-CREATE PRODUCT
-====================================================== */
-
-function CreateProductModal({
-  user,
-  onClose,
-  onCreated,
-}) {
   const [name, setName] =
-    useState("");
+    useState(user?.name || "");
 
-  const [description, setDescription] =
-    useState("");
+  const [username, setUsername] =
+    useState(
+      user?.username ||
+        makeUsernameFromEmail(
+          user?.email
+        )
+    );
 
-  const [price, setPrice] =
-    useState("");
+  const [bio, setBio] =
+    useState(user?.bio || "");
 
-  const [category, setCategory] =
-    useState("Other");
-
-  const [image, setImage] =
+  const [file, setFile] =
     useState(null);
 
   const [preview, setPreview] =
-    useState("");
+    useState(user?.avatar || "");
 
   const [saving, setSaving] =
     useState(false);
 
-  const [error, setError] =
-    useState("");
+  const fileRef = useRef(null);
 
-  const fileRef =
-    useRef(null);
-
-  const chooseImage = (e) => {
-    const file =
-      e.target.files?.[0];
-
-    if (!file) return;
-
-    setImage(file);
-
-    const reader =
-      new FileReader();
-
-    reader.onload = () =>
-      setPreview(
-        String(
-          reader.result || ""
+  useEffect(() => {
+    setName(user?.name || "");
+    setUsername(
+      user?.username ||
+        makeUsernameFromEmail(
+          user?.email
         )
-      );
+    );
+    setBio(user?.bio || "");
+    setPreview(user?.avatar || "");
+  }, [user]);
 
-    reader.readAsDataURL(file);
-  };
+  const chooseAvatar = (event) => {
+    const selected =
+      event.target.files?.[0];
 
-  const submit = async (
-    e
-  ) => {
-    e.preventDefault();
+    if (!selected) return;
 
-    if (
-      !name.trim() ||
-      !price
-    ) {
-      setError(
-        "Product name and price are required."
+    if (!selected.type.startsWith("image/")) {
+      notify(
+        "Please select an image."
       );
       return;
     }
 
+    if (selected.size > MAX_IMAGE_BYTES) {
+      notify(
+        "Profile image must be smaller than 10MB."
+      );
+      return;
+    }
+
+    setFile(selected);
+
+    const reader = new FileReader();
+
+    reader.onload = () =>
+      setPreview(
+        String(reader.result || "")
+      );
+
+    reader.readAsDataURL(selected);
+  };
+
+  const saveProfile = async () => {
+    const cleanName =
+      name.trim() ||
+      makeUsernameFromEmail(
+        user?.email
+      );
+
+    const cleanUsername =
+      username
+        .trim()
+        .toLowerCase()
+        .replace(
+          /[^a-z0-9._-]/g,
+          ""
+        ) ||
+      makeUsernameFromEmail(
+        user?.email
+      );
+
     setSaving(true);
-    setError("");
 
     try {
       const form =
         new FormData();
 
+      form.append("name", cleanName);
       form.append(
-        "name",
-        name.trim()
+        "username",
+        cleanUsername
+      );
+      form.append(
+        "bio",
+        bio.trim()
       );
 
-      form.append(
-        "description",
-        description.trim()
-      );
-
-      form.append(
-        "price",
-        price
-      );
-
-      form.append(
-        "category",
-        category
-      );
-
-      if (image) {
+      if (file) {
         form.append(
-          "image",
-          image
+          "avatar",
+          file
         );
       }
 
-      await api("/products", {
-        method: "POST",
-        body: form,
-      });
+      const response =
+        await api("/users/me", {
+          method: "PATCH",
+          body: form,
+        });
 
-      onCreated();
-      onClose();
+      const updated =
+        normalizeUser(
+          response?.data ||
+            response?.user
+        );
+
+      const finalUser =
+        updated ||
+        normalizeUser({
+          ...user,
+          name: cleanName,
+          username: cleanUsername,
+          bio: bio.trim(),
+          avatar:
+            preview ||
+            user?.avatar ||
+            "",
+        });
+
+      setUser(finalUser);
+      setEditing(false);
+      setFile(null);
+
+      /*
+        carebox_user is updated immediately and the backend has already
+        persisted the profile. This means the edited profile remains after
+        logout/login and across devices once the backend returns it.
+      */
+      writeJSON(
+        STORAGE.USER,
+        finalUser
+      );
+
+      notify(
+        "Profile saved permanently"
+      );
     } catch (error) {
-      setError(
-        error.message ||
-          "Unable to create product."
+      /*
+        Keep the local profile as a fallback, but explicitly distinguish
+        it from cloud persistence.
+      */
+      const fallback =
+        normalizeUser({
+          ...user,
+          name:
+            name.trim() ||
+            makeUsernameFromEmail(
+              user?.email
+            ),
+          username:
+            username.trim() ||
+            makeUsernameFromEmail(
+              user?.email
+            ),
+          bio: bio.trim(),
+          avatar:
+            preview ||
+            user?.avatar ||
+            "",
+        });
+
+      setUser(fallback);
+      writeJSON(
+        STORAGE.USER,
+        fallback
+      );
+
+      notify(
+        `Profile saved on this device. Server unavailable: ${error.message}`
       );
     } finally {
       setSaving(false);
@@ -3231,47 +2253,33 @@ function CreateProductModal({
   };
 
   return (
-    <Modal
-      title="Sell a product"
-      subtitle="List something for your community."
-      onClose={onClose}
-    >
-      <form
-        className="modal-form"
-        onSubmit={submit}
-      >
-        {error && (
-          <div className="form-error">
-            {error}
-          </div>
-        )}
+    <section className="content-view profile-page">
+      <div className="profile-cover" />
 
-        <div
-          className="image-picker"
-          onClick={() =>
-            fileRef.current?.click()
-          }
-        >
+      <div className="profile-card">
+        <div className="profile-avatar-wrap">
           {preview ? (
             <img
               src={preview}
               alt=""
+              className="profile-avatar-large"
             />
           ) : (
-            <>
-              <Icon
-                name="image"
-                size={28}
-              />
+            <div className="profile-avatar-large profile-avatar-letter">
+              {initialsFor(user)}
+            </div>
+          )}
 
-              <strong>
-                Product image
-              </strong>
-
-              <span>
-                Optional
-              </span>
-            </>
+          {editing && (
+            <button
+              className="avatar-edit"
+              onClick={() =>
+                fileRef.current?.click()
+              }
+              aria-label="Change profile photo"
+            >
+              <Camera size={15} />
+            </button>
           )}
         </div>
 
@@ -3280,134 +2288,264 @@ function CreateProductModal({
           hidden
           type="file"
           accept="image/*"
-          onChange={
-            chooseImage
-          }
+          onChange={chooseAvatar}
         />
 
-        <input
-          className="form-input"
-          placeholder="Product name"
-          value={name}
-          onChange={(e) =>
-            setName(
-              e.target.value
-            )
-          }
-        />
+        <div className="profile-heading-row">
+          <div>
+            <h1>
+              {user?.name ||
+                user?.username ||
+                "User"}
+            </h1>
 
-        <input
-          className="form-input"
-          placeholder="Price in KES"
-          type="number"
-          min="0"
-          value={price}
-          onChange={(e) =>
-            setPrice(
-              e.target.value
-            )
-          }
-        />
+            <span>
+              @
+              {user?.username ||
+                makeUsernameFromEmail(
+                  user?.email
+                )}
+            </span>
+          </div>
 
-        <select
-          className="form-input"
-          value={category}
-          onChange={(e) =>
-            setCategory(
-              e.target.value
-            )
-          }
-        >
-          <option>
-            Clothes
-          </option>
-          <option>
-            Books
-          </option>
-          <option>
-            Electronics
-          </option>
-          <option>
-            Food
-          </option>
-          <option>
-            Services
-          </option>
-          <option>
-            Other
-          </option>
-        </select>
+          {!editing && (
+            <button
+              className="secondary-button"
+              onClick={() =>
+                setEditing(true)
+              }
+            >
+              <Pencil size={16} />
+              Edit profile
+            </button>
+          )}
+        </div>
 
-        <textarea
-          className="form-input textarea"
-          placeholder="Description"
-          value={description}
-          onChange={(e) =>
-            setDescription(
-              e.target.value
-            )
-          }
-        />
+        {editing ? (
+          <div className="profile-form">
+            <label>
+              Full name
+              <input
+                className="form-input"
+                value={name}
+                onChange={(e) =>
+                  setName(
+                    e.target.value
+                  )
+                }
+              />
+            </label>
 
-        <button
-          className="primary-button full"
-          disabled={saving}
-        >
-          {saving
-            ? "Publishing..."
-            : "Publish product"}
-        </button>
-      </form>
-    </Modal>
+            <label>
+              Username
+              <input
+                className="form-input"
+                value={username}
+                onChange={(e) =>
+                  setUsername(
+                    e.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Bio
+              <textarea
+                className="form-input textarea"
+                value={bio}
+                onChange={(e) =>
+                  setBio(
+                    e.target.value
+                  )
+                }
+                placeholder="Tell the community about yourself"
+              />
+            </label>
+
+            <div className="profile-actions">
+              <button
+                className="secondary-button"
+                onClick={() =>
+                  setEditing(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="primary-button"
+                disabled={saving}
+                onClick={saveProfile}
+              >
+                <Save size={16} />
+                {saving
+                  ? "Saving..."
+                  : "Save profile"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="profile-info">
+            <p>
+              {user?.bio ||
+                "No bio added yet."}
+            </p>
+
+            <span>
+              {user?.email}
+            </span>
+          </div>
+        )}
+
+        <div className="profile-stats">
+          <div>
+            <strong>
+              {user?.postCount || 0}
+            </strong>
+            <span>Posts</span>
+          </div>
+
+          <div>
+            <strong>
+              {user?.followersCount || 0}
+            </strong>
+            <span>Followers</span>
+          </div>
+
+          <div>
+            <strong>
+              {user?.followingCount || 0}
+            </strong>
+            <span>Following</span>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
-/* ======================================================
-INBOX
-====================================================== */
+/* =========================================================
+   INBOX — ALL PLATFORM USERS + CONVERSATIONS
+   ========================================================= */
 
 function InboxView({
   user,
   notify,
 }) {
+  const [mode, setMode] =
+    useState("conversations");
+
   const [conversations, setConversations] =
+    useState([]);
+
+  const [users, setUsers] =
     useState([]);
 
   const [activeConversation, setActiveConversation] =
     useState(null);
 
-  const [message, setMessage] =
-    useState("");
-
   const [messages, setMessages] =
     useState([]);
 
+  const [message, setMessage] =
+    useState("");
+
   const [loading, setLoading] =
     useState(true);
+
+  const [usersLoading, setUsersLoading] =
+    useState(false);
+
+  const [search, setSearch] =
+    useState("");
+
+  const [sending, setSending] =
+    useState(false);
 
   const loadConversations =
     useCallback(async () => {
       try {
         const data =
-          await api(
-            "/conversations"
-          );
+          await api("/conversations");
 
-        const list =
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : Array.isArray(data)
-            ? data
-            : [];
-
-        setConversations(list);
-      } catch {}
-      finally {
+        setConversations(
+          extractArray(data)
+        );
+      } catch (error) {
+        console.warn(
+          "Conversations unavailable:",
+          error
+        );
+      } finally {
         setLoading(false);
       }
     }, []);
+
+  const loadUsers =
+    useCallback(async () => {
+      setUsersLoading(true);
+
+      try {
+        /*
+          Preferred endpoint: GET /users?limit=100.
+          This must be authorized server-side and must exclude sensitive
+          fields such as password hashes.
+        */
+        const data =
+          await api("/users?limit=100");
+
+        const list =
+          extractArray(data, [
+            "users",
+            "data",
+          ]).map(normalizeUser);
+
+        setUsers(
+          list.filter(
+            (candidate) =>
+              !isSameUser(
+                candidate,
+                user
+              )
+          )
+        );
+      } catch (error) {
+        /*
+          Fallback to the existing search endpoint if /users has not yet
+          been implemented by the backend.
+        */
+        try {
+          const data =
+            await api(
+              "/search?q="
+            );
+
+          const list =
+            data?.data?.users ||
+            data?.users ||
+            [];
+
+          setUsers(
+            list
+              .map(normalizeUser)
+              .filter(
+                (candidate) =>
+                  !isSameUser(
+                    candidate,
+                    user
+                  )
+              )
+          );
+        } catch {
+          notify(
+            "Unable to load platform users. Add GET /users to the backend."
+          );
+        }
+      } finally {
+        setUsersLoading(false);
+      }
+    }, [notify, user]);
 
   useEffect(() => {
     loadConversations();
@@ -3420,31 +2558,109 @@ function InboxView({
 
     return () =>
       clearInterval(timer);
-  }, [
-    loadConversations,
-  ]);
+  }, [loadConversations]);
 
   const openConversation =
     async (conversation) => {
       setActiveConversation(
         conversation
       );
+      setMode("conversations");
+
+      const conversationId =
+        idOf(conversation);
+
+      if (!conversationId) return;
 
       try {
         const data =
           await api(
-            `/conversations/${conversation.id || conversation._id}/messages`
+            `/conversations/${conversationId}/messages`
           );
 
         setMessages(
-          Array.isArray(
-            data?.data
-          )
-            ? data.data
-            : []
+          extractArray(data)
         );
       } catch {
         setMessages([]);
+        notify(
+          "Could not load messages"
+        );
+      }
+    };
+
+  const startConversation =
+    async (person) => {
+      const participantId =
+        idOf(person);
+
+      if (!participantId) {
+        notify(
+          "This user has no valid account ID."
+        );
+        return;
+      }
+
+      try {
+        /*
+          The backend should return the existing conversation when one
+          already exists, otherwise create a new one.
+        */
+        const data =
+          await api(
+            "/conversations",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                participantId,
+              }),
+            }
+          );
+
+        const conversation =
+          data?.data ||
+          data?.conversation;
+
+        if (conversation) {
+          setConversations(
+            (previous) => {
+              const cid =
+                String(
+                  idOf(
+                    conversation
+                  )
+                );
+
+              const without =
+                previous.filter(
+                  (item) =>
+                    String(
+                      idOf(item)
+                    ) !== cid
+                );
+
+              return [
+                conversation,
+                ...without,
+              ];
+            }
+          );
+
+          await openConversation(
+            conversation
+          );
+        }
+
+        notify(
+          `Conversation with ${
+            person.name ||
+            person.username
+          } opened`
+        );
+      } catch (error) {
+        notify(
+          `Could not start conversation: ${error.message}`
+        );
       }
     };
 
@@ -3455,13 +2671,17 @@ function InboxView({
 
       if (
         !text ||
-        !activeConversation
+        !activeConversation ||
+        sending
       )
         return;
 
-      const id =
-        activeConversation.id ||
-        activeConversation._id;
+      const conversationId =
+        idOf(activeConversation);
+
+      if (!conversationId) return;
+
+      setSending(true);
 
       const optimistic = {
         id: `temp-${Date.now()}`,
@@ -3484,7 +2704,7 @@ function InboxView({
       try {
         const data =
           await api(
-            `/conversations/${id}/messages`,
+            `/conversations/${conversationId}/messages`,
             {
               method: "POST",
               body: JSON.stringify({
@@ -3509,6 +2729,8 @@ function InboxView({
               )
           );
         }
+
+        loadConversations();
       } catch {
         setMessages(
           (items) =>
@@ -3522,149 +2744,313 @@ function InboxView({
         notify(
           "Message could not be sent"
         );
+      } finally {
+        setSending(false);
       }
     };
 
+  const filteredUsers =
+    users.filter((candidate) => {
+      const value =
+        `${candidate.name} ${candidate.username} ${candidate.email}`
+          .toLowerCase();
+
+      return value.includes(
+        search.trim().toLowerCase()
+      );
+    });
+
   return (
     <section className="content-view inbox-view">
-      <PageHeading
-        eyebrow="MESSAGES"
-        title="Inbox"
-        description="Private conversations with people in your community."
-      />
-
-      <div className="inbox-layout">
-        <div className="conversation-list">
-          {loading ? (
-            <div className="loading-box">
-              Loading conversations...
-            </div>
-          ) : conversations.length ? (
-            conversations.map(
-              (conversation) => {
-                const person =
-                  conversation.otherUser ||
-                  conversation.participant ||
-                  {};
-
-                return (
-                  <button
-                    key={
-                      conversation.id ||
-                      conversation._id
-                    }
-                    className={
-                      activeConversation?.id ===
-                        conversation.id
-                        ? "conversation active"
-                        : "conversation"
-                    }
-                    onClick={() =>
-                      openConversation(
-                        conversation
-                      )
-                    }
-                  >
-                    <UserAvatar
-                      user={person}
-                      size={43}
-                    />
-
-                    <div>
-                      <strong>
-                        {person.name ||
-                          person.username ||
-                          "User"}
-                      </strong>
-
-                      <p>
-                        {conversation.lastMessage
-                          ?.content ||
-                          "Start a conversation"}
-                      </p>
-
-                      <span>
-                        {timeAgo(
-                          conversation.lastMessage
-                            ?.createdAt
-                        )}
-                      </span>
-                    </div>
-
-                    {conversation.unreadCount >
-                      0 && (
-                      <b className="unread">
-                        {conversation.unreadCount}
-                      </b>
-                    )}
-                  </button>
-                );
-              }
-            )
-          ) : (
-            <EmptyState
-              icon="inbox"
-              title="No conversations"
-              description="Messages from buyers, sellers and community members will appear here."
-            />
-          )}
+      <div className="inbox-heading">
+        <div>
+          <span className="eyebrow">
+            MESSAGES
+          </span>
+          <h1>Inbox</h1>
+          <p>
+            Chat privately with anyone who has an account on CareBox.
+          </p>
         </div>
 
-        <div className="chat-panel">
+        <button
+          className="secondary-button"
+          onClick={() =>
+            setMode(
+              mode ===
+                "people"
+                ? "conversations"
+                : "people"
+            )
+          }
+        >
+          {mode === "people"
+            ? "Conversations"
+            : "Start conversation"}
+        </button>
+      </div>
+
+      <div className="inbox-layout">
+        <aside className="conversation-panel">
+          {mode === "people" ? (
+            <>
+              <div className="panel-title">
+                <UserPlus size={17} />
+                <strong>
+                  People on CareBox
+                </strong>
+              </div>
+
+              <div className="panel-search">
+                <Search size={15} />
+                <input
+                  value={search}
+                  onChange={(e) =>
+                    setSearch(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Find a person..."
+                />
+              </div>
+
+              {usersLoading ? (
+                <div className="loading-box">
+                  Loading people...
+                </div>
+              ) : filteredUsers.length ? (
+                filteredUsers.map(
+                  (person) => (
+                    <button
+                      key={idOf(person)}
+                      className="person-row"
+                      onClick={() =>
+                        startConversation(
+                          person
+                        )
+                      }
+                    >
+                      <UserAvatar
+                        user={person}
+                        size={43}
+                      />
+
+                      <div>
+                        <strong>
+                          {person.name ||
+                            person.username}
+                        </strong>
+                        <span>
+                          @
+                          {person.username ||
+                            makeUsernameFromEmail(
+                              person.email
+                            )}
+                        </span>
+                      </div>
+
+                      <MessageSquare
+                        size={17}
+                      />
+                    </button>
+                  )
+                )
+              ) : (
+                <EmptyState
+                  icon={<Users size={27} />}
+                  title="No people found"
+                  description="No other platform accounts match your search."
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <div className="panel-title">
+                <MessageSquare size={17} />
+                <strong>
+                  Conversations
+                </strong>
+              </div>
+
+              {loading ? (
+                <div className="loading-box">
+                  Loading conversations...
+                </div>
+              ) : conversations.length ? (
+                conversations.map(
+                  (conversation) => {
+                    const person =
+                      normalizeUser(
+                        conversation.otherUser ||
+                          conversation.participant ||
+                          conversation.user ||
+                          {}
+                      );
+
+                    const cid =
+                      idOf(
+                        conversation
+                      );
+
+                    return (
+                      <button
+                        key={cid}
+                        className={`conversation ${
+                          idOf(
+                            activeConversation
+                          ) === cid
+                            ? "active"
+                            : ""
+                        }`}
+                        onClick={() =>
+                          openConversation(
+                            conversation
+                          )
+                        }
+                      >
+                        <UserAvatar
+                          user={person}
+                          size={43}
+                        />
+
+                        <div>
+                          <strong>
+                            {person.name ||
+                              person.username ||
+                              "User"}
+                          </strong>
+
+                          <p>
+                            {conversation
+                              .lastMessage
+                              ?.content ||
+                              "Start a conversation"}
+                          </p>
+
+                          <span>
+                            {timeAgo(
+                              conversation
+                                .lastMessage
+                                ?.createdAt
+                            )}
+                          </span>
+                        </div>
+
+                        {conversation.unreadCount >
+                          0 && (
+                          <b className="unread">
+                            {
+                              conversation.unreadCount
+                            }
+                          </b>
+                        )}
+                      </button>
+                    );
+                  }
+                )
+              ) : (
+                <div className="empty-conversations">
+                  <MessageSquare
+                    size={30}
+                  />
+                  <strong>
+                    No conversations
+                  </strong>
+                  <span>
+                    Choose “Start conversation” to see all registered users.
+                  </span>
+                  <button
+                    className="primary-button"
+                    onClick={async () => {
+                      setMode("people");
+                      if (!users.length)
+                        await loadUsers();
+                    }}
+                  >
+                    Find people
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </aside>
+
+        <section className="chat-panel">
           {!activeConversation ? (
             <div className="chat-empty">
-              <Icon
-                name="message"
-                size={38}
+              <MessageSquare
+                size={42}
               />
-
               <h3>
                 Select a conversation
               </h3>
-
               <p>
-                Your messages will
-                appear here.
+                Or start a new conversation with any CareBox account.
               </p>
+
+              <button
+                className="primary-button"
+                onClick={async () => {
+                  setMode("people");
+                  if (!users.length)
+                    await loadUsers();
+                }}
+              >
+                <UserPlus size={16} />
+                Start conversation
+              </button>
             </div>
           ) : (
             <>
               <div className="chat-header">
-                <UserAvatar
-                  user={
-                    activeConversation.otherUser ||
-                    activeConversation.participant
+                <button
+                  className="chat-back"
+                  onClick={() =>
+                    setActiveConversation(
+                      null
+                    )
                   }
-                  size={38}
+                  aria-label="Back"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+
+                <UserAvatar
+                  user={normalizeUser(
+                    activeConversation.otherUser ||
+                      activeConversation.participant
+                  )}
+                  size={39}
                 />
 
-                <strong>
-                  {activeConversation
-                    .otherUser
-                    ?.name ||
-                    activeConversation
-                      .participant
-                      ?.name ||
-                    "Conversation"}
-                </strong>
+                <div>
+                  <strong>
+                    {normalizeUser(
+                      activeConversation.otherUser ||
+                        activeConversation.participant
+                    )?.name ||
+                      "Conversation"}
+                  </strong>
+
+                  <span>
+                    Private conversation
+                  </span>
+                </div>
               </div>
 
               <div className="messages">
                 {messages.map(
                   (item) => {
-                    const senderId =
-                      item.sender
-                        ?.id ||
-                      item.sender
-                        ?._id;
+                    const sender =
+                      normalizeUser(
+                        item.sender ||
+                          item.author
+                      );
 
                     const mine =
-                      String(
-                        senderId
-                      ) ===
-                      String(
-                        user?.id ||
-                          user?._id
+                      isSameUser(
+                        sender,
+                        user
                       );
 
                     return (
@@ -3673,22 +3059,32 @@ function InboxView({
                           item.id ||
                           item._id
                         }
-                        className={
+                        className={`message-row ${
                           mine
-                            ? "message mine"
-                            : "message"
-                        }
+                            ? "mine"
+                            : ""
+                        }`}
                       >
-                        <div>
-                          {item.content ||
-                            item.text}
-                        </div>
+                        {!mine && (
+                          <UserAvatar
+                            user={sender}
+                            size={27}
+                          />
+                        )}
 
-                        <span>
-                          {timeAgo(
-                            item.createdAt
-                          )}
-                        </span>
+                        <div className="message-bubble">
+                          <p>
+                            {item.content ||
+                              item.text ||
+                              ""}
+                          </p>
+
+                          <span>
+                            {timeAgo(
+                              item.createdAt
+                            )}
+                          </span>
+                        </div>
                       </div>
                     );
                   }
@@ -3704,10 +3100,7 @@ function InboxView({
                     )
                   }
                   onKeyDown={(e) => {
-                    if (
-                      e.key ===
-                      "Enter"
-                    ) {
+                    if (e.key === "Enter") {
                       sendMessage();
                     }
                   }}
@@ -3715,202 +3108,100 @@ function InboxView({
                 />
 
                 <button
-                  onClick={
-                    sendMessage
-                  }
+                  onClick={sendMessage}
+                  disabled={sending}
+                  aria-label="Send message"
                 >
-                  <Icon
-                    name="send"
-                    size={18}
-                  />
+                  <Send size={17} />
                 </button>
               </div>
             </>
           )}
-        </div>
+        </section>
       </div>
     </section>
   );
 }
 
-/* ======================================================
-NOTIFICATIONS
-====================================================== */
-
-function NotificationsView({
-  notifications,
-  unread,
-  onRead,
-}) {
-  return (
-    <section className="content-view">
-      <PageHeading
-        eyebrow="ACTIVITY"
-        title="Notifications"
-        description="Stay updated when people interact with you."
-        action={
-          unread > 0 && (
-            <button
-              className="secondary-button"
-              onClick={onRead}
-            >
-              Mark all read
-            </button>
-          )
-        }
-      />
-
-      <div className="notification-list">
-        {notifications.length ? (
-          notifications.map(
-            (item) => (
-              <div
-                className={
-                  !item.read &&
-                  !item.isRead
-                    ? "notification unread-notification"
-                    : "notification"
-                }
-                key={
-                  item.id ||
-                  item._id
-                }
-              >
-                <div className="notification-icon-box">
-                  <Icon
-                    name={
-                      item.type ===
-                      "message"
-                        ? "message"
-                        : item.type ===
-                          "comment"
-                        ? "comment"
-                        : item.type ===
-                          "like"
-                        ? "heart"
-                        : "bell"
-                    }
-                    size={18}
-                  />
-                </div>
-
-                <div>
-                  <strong>
-                    {item.title ||
-                      item.actor
-                        ?.name ||
-                      "CareBox activity"}
-                  </strong>
-
-                  <p>
-                    {item.message ||
-                      item.text ||
-                      "You have a new notification."}
-                  </p>
-
-                  <span>
-                    {timeAgo(
-                      item.createdAt
-                    )}
-                  </span>
-                </div>
-
-                {!item.read &&
-                  !item.isRead && (
-                    <span className="notification-unread-dot" />
-                  )}
-              </div>
-            )
-          )
-        ) : (
-          <EmptyState
-            icon="bell"
-            title="You're all caught up"
-            description="New activity will appear here."
-          />
-        )}
-      </div>
-    </section>
-  );
-}
-
-/* ======================================================
-SEARCH
-====================================================== */
+/* =========================================================
+   SEARCH
+   ========================================================= */
 
 function SearchView({
-  query,
-  setQuery,
-  go,
+  user,
   notify,
 }) {
+  const [query, setQuery] =
+    useState("");
+
   const [results, setResults] =
     useState({
+      users: [],
       posts: [],
       products: [],
-      users: [],
     });
 
   const [loading, setLoading] =
     useState(false);
 
-  const search = async (
-    value
-  ) => {
-    const q =
-      value.trim();
+  const runSearch = useCallback(
+    async (value) => {
+      const q = value.trim();
 
-    if (!q) {
-      setResults({
-        posts: [],
-        products: [],
-        users: [],
-      });
+      if (!q) {
+        setResults({
+          users: [],
+          posts: [],
+          products: [],
+        });
+        return;
+      }
 
-      return;
-    }
+      setLoading(true);
 
-    setLoading(true);
+      try {
+        const data =
+          await api(
+            `/search?q=${encodeURIComponent(
+              q
+            )}`
+          );
 
-    try {
-      const data =
-        await api(
-          `/search?q=${encodeURIComponent(
-            q
-          )}`
+        setResults({
+          users:
+            data?.data?.users ||
+            data?.users ||
+            [],
+          posts:
+            data?.data?.posts ||
+            data?.posts ||
+            [],
+          products:
+            data?.data?.products ||
+            data?.products ||
+            [],
+        });
+      } catch {
+        notify(
+          "Search service unavailable"
         );
-
-      setResults({
-        posts:
-          data?.data?.posts ||
-          [],
-        products:
-          data?.data
-            ?.products ||
-          [],
-        users:
-          data?.data?.users ||
-          [],
-      });
-    } catch {
-      notify(
-        "Search service unavailable"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [notify]
+  );
 
   useEffect(() => {
     const timer =
       setTimeout(
-        () => search(query),
-        400
+        () => runSearch(query),
+        350
       );
 
     return () =>
       clearTimeout(timer);
-  }, [query]);
+  }, [query, runSearch]);
 
   return (
     <section className="content-view">
@@ -3920,12 +3211,8 @@ function SearchView({
         description="Find people, posts and products across CareBox."
       />
 
-      <div className="search-field large">
-        <Icon
-          name="search"
-          size={18}
-        />
-
+      <div className="search-field-large">
+        <Search size={18} />
         <input
           autoFocus
           value={query}
@@ -3946,26 +3233,24 @@ function SearchView({
         <div className="search-results">
           <SearchSection
             title="People"
-            items={
-              results.users
-            }
-            empty="No people found."
+            items={results.users}
             render={(item) => (
-              <div className="search-user">
+              <div className="search-person">
                 <UserAvatar
                   user={item}
                   size={40}
                 />
-
                 <div>
                   <strong>
                     {item.name ||
                       item.username}
                   </strong>
-
                   <span>
-                    {item.email ||
-                      "CareBox member"}
+                    @
+                    {item.username ||
+                      makeUsernameFromEmail(
+                        item.email
+                      )}
                   </span>
                 </div>
               </div>
@@ -3974,20 +3259,17 @@ function SearchView({
 
           <SearchSection
             title="Posts"
-            items={
-              results.posts
-            }
-            empty="No posts found."
+            items={results.posts}
             render={(item) => (
               <div className="search-result">
                 <strong>
                   {item.title ||
-                    item.description}
+                    item.description ||
+                    "Community post"}
                 </strong>
-
                 <span>
-                  {item.author
-                    ?.username ||
+                  {item.author?.name ||
+                    item.author?.username ||
                     "Community member"}
                 </span>
               </div>
@@ -3996,22 +3278,17 @@ function SearchView({
 
           <SearchSection
             title="Products"
-            items={
-              results.products
-            }
-            empty="No products found."
+            items={results.products}
             render={(item) => (
               <div className="search-result">
                 <strong>
                   {item.name ||
                     item.title}
                 </strong>
-
                 <span>
                   KES{" "}
                   {Number(
-                    item.price ||
-                      0
+                    item.price || 0
                   ).toLocaleString()}
                 </span>
               </div>
@@ -4026,7 +3303,6 @@ function SearchView({
 function SearchSection({
   title,
   items,
-  empty,
   render,
 }) {
   return (
@@ -4039,8 +3315,7 @@ function SearchSection({
             (item, index) => (
               <div
                 key={
-                  item.id ||
-                  item._id ||
+                  idOf(item) ||
                   index
                 }
               >
@@ -4051,346 +3326,444 @@ function SearchSection({
         </div>
       ) : (
         <div className="small-empty">
-          {empty}
+          No results.
         </div>
       )}
     </section>
   );
 }
 
-/* ======================================================
-PROFILE
-====================================================== */
+/* =========================================================
+   HOME
+   ========================================================= */
 
-function ProfileView({
+function HomeView({
   user,
-  setUser,
-  notify,
+  go,
 }) {
-  const [editing, setEditing] =
-    useState(false);
-
-  const [name, setName] =
-    useState(
-      user?.name || ""
-    );
-
-  const [username, setUsername] =
-    useState(
-      user?.username || ""
-    );
-
-  const [bio, setBio] =
-    useState(
-      user?.bio || ""
-    );
-
-  const [saving, setSaving] =
-    useState(false);
-
-  const [file, setFile] =
-    useState(null);
-
-  const [preview, setPreview] =
-    useState(
-      user?.avatar || ""
-    );
-
-  const fileRef =
-    useRef(null);
-
-  const chooseAvatar = (e) => {
-    const selected =
-      e.target.files?.[0];
-
-    if (!selected) return;
-
-    setFile(selected);
-
-    const reader =
-      new FileReader();
-
-    reader.onload = () =>
-      setPreview(
-        String(
-          reader.result || ""
-        )
-      );
-
-    reader.readAsDataURL(
-      selected
-    );
-  };
-
-  const saveProfile =
-    async () => {
-      setSaving(true);
-
-      try {
-        const form =
-          new FormData();
-
-        form.append(
-          "name",
-          name
-        );
-
-        form.append(
-          "username",
-          username
-        );
-
-        form.append(
-          "bio",
-          bio
-        );
-
-        if (file) {
-          form.append(
-            "avatar",
-            file
-          );
-        }
-
-        const data =
-          await api(
-            "/users/me",
-            {
-              method: "PATCH",
-              body: form,
-            }
-          );
-
-        const updated =
-          normalizeUser(
-            data?.data ||
-              data?.user
-          );
-
-        const finalUser =
-          updated || {
-            ...user,
-            name,
-            username,
-            bio,
-            avatar:
-              preview ||
-              user?.avatar ||
-              "",
-          };
-
-        setUser(finalUser);
-
-        write(
-          STORAGE.USER,
-          finalUser
-        );
-
-        setEditing(false);
-
-        notify(
-          "Profile updated"
-        );
-      } catch {
-        notify(
-          "Could not update profile"
-        );
-      } finally {
-        setSaving(false);
-      }
-    };
-
   return (
-    <section className="profile-page">
-      <div className="profile-cover" />
+    <section className="content-view">
+      <PageHeading
+        eyebrow="CAREBOX"
+        title={`Welcome ${
+          user?.name ||
+          user?.username ||
+          ""
+        }`}
+        description="Your CareBox community, products and conversations in one place."
+      />
 
-      <div className="profile-main">
-        <div className="profile-avatar-large">
-          {preview ? (
-            <img
-              src={preview}
-              alt=""
-            />
-          ) : (
-            initials(user)
-          )}
-
-          {editing && (
-            <button
-              onClick={() =>
-                fileRef.current?.click()
-              }
-            >
-              <Icon
-                name="edit"
-                size={15}
-              />
-            </button>
-          )}
-        </div>
-
-        <input
-          hidden
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={
-            chooseAvatar
-          }
+      <div className="hero-card">
+        <UserAvatar
+          user={user}
+          size={62}
         />
-
-        <div className="profile-title">
-          <div>
-            <h1>
-              {user?.name ||
-                user?.username ||
-                "User"}
-            </h1>
-
-            <span>
-              @{user?.username ||
-                "user"}
-            </span>
-          </div>
-
-          {!editing && (
-            <button
-              className="secondary-button"
-              onClick={() =>
-                setEditing(true)
-              }
-            >
-              <Icon
-                name="edit"
-                size={16}
-              />
-              Edit profile
-            </button>
-          )}
+        <div>
+          <h2>
+            CareBox Community
+          </h2>
+          <p>
+            Connect with people, share resources and discover opportunities.
+          </p>
         </div>
+      </div>
 
-        {editing ? (
-          <div className="profile-form">
-            <input
-              className="form-input"
-              value={name}
-              onChange={(e) =>
-                setName(
-                  e.target.value
-                )
-              }
-              placeholder="Full name"
-            />
+      <div className="quick-grid">
+        <button
+          onClick={() => go("community")}
+        >
+          <Users size={23} />
+          <strong>
+            Community
+          </strong>
+          <span>
+            Share and connect
+          </span>
+        </button>
 
-            <input
-              className="form-input"
-              value={username}
-              onChange={(e) =>
-                setUsername(
-                  e.target.value
-                )
-              }
-              placeholder="Username"
-            />
+        <button
+          onClick={() => go("products")}
+        >
+          <Package size={23} />
+          <strong>
+            Products
+          </strong>
+          <span>
+            Buy and sell
+          </span>
+        </button>
 
-            <textarea
-              className="form-input textarea"
-              value={bio}
-              onChange={(e) =>
-                setBio(
-                  e.target.value
-                )
-              }
-              placeholder="Tell the community about yourself"
-            />
+        <button
+          onClick={() => go("inbox")}
+        >
+          <MessageSquare
+            size={23}
+          />
+          <strong>
+            Messages
+          </strong>
+          <span>
+            Talk to people
+          </span>
+        </button>
 
-            <div className="profile-actions">
-              <button
-                className="secondary-button"
-                onClick={() =>
-                  setEditing(false)
-                }
-              >
-                Cancel
-              </button>
-
-              <button
-                className="primary-button"
-                disabled={saving}
-                onClick={
-                  saveProfile
-                }
-              >
-                {saving
-                  ? "Saving..."
-                  : "Save profile"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="profile-info">
-            <p>
-              {user?.bio ||
-                "No bio added yet."}
-            </p>
-
-            <span>
-              {user?.email}
-            </span>
-          </div>
-        )}
-
-        <div className="profile-stats">
-          <div>
-            <strong>
-              {user?.postCount ||
-                0}
-            </strong>
-            <span>Posts</span>
-          </div>
-
-          <div>
-            <strong>
-              {user?.productCount ||
-                0}
-            </strong>
-            <span>Products</span>
-          </div>
-
-          <div>
-            <strong>
-              {user?.followersCount ||
-                0}
-            </strong>
-            <span>Followers</span>
-          </div>
-        </div>
+        <button
+          onClick={() => go("profile")}
+        >
+          <User size={23} />
+          <strong>
+            Profile
+          </strong>
+          <span>
+            Manage account
+          </span>
+        </button>
       </div>
     </section>
   );
 }
 
-/* ======================================================
-SETTINGS
-====================================================== */
+/* =========================================================
+   PRODUCTS — KEPT FUNCTIONAL
+   ========================================================= */
+
+function ProductsView({
+  user,
+  notify,
+}) {
+  const [products, setProducts] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [query, setQuery] =
+    useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data =
+          await api(
+            "/products?limit=30"
+          );
+
+        setProducts(
+          extractArray(data)
+        );
+      } catch {
+        setProducts(
+          readJSON(
+            "carebox_products_cache",
+            []
+          )
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const filtered =
+    products.filter((product) =>
+      `${product.name || ""} ${
+        product.description || ""
+      }`
+        .toLowerCase()
+        .includes(
+          query.toLowerCase()
+        )
+    );
+
+  return (
+    <section className="content-view">
+      <PageHeading
+        eyebrow="MARKETPLACE"
+        title="Products"
+        description="Discover products and opportunities from your community."
+      />
+
+      <div className="search-field-large">
+        <Search size={17} />
+        <input
+          value={query}
+          onChange={(e) =>
+            setQuery(
+              e.target.value
+            )
+          }
+          placeholder="Search products..."
+        />
+      </div>
+
+      {loading ? (
+        <div className="loading-box">
+          Loading products...
+        </div>
+      ) : filtered.length ? (
+        <div className="product-grid">
+          {filtered.map(
+            (product) => (
+              <article
+                className="product-card"
+                key={idOf(product)}
+              >
+                <div className="product-image">
+                  {product.image ||
+                  product.imageUrl ? (
+                    <img
+                      src={
+                        product.image ||
+                        product.imageUrl
+                      }
+                      alt={
+                        product.name ||
+                        "Product"
+                      }
+                    />
+                  ) : (
+                    <Package
+                      size={38}
+                    />
+                  )}
+                </div>
+
+                <div className="product-info">
+                  <span>
+                    {product.category ||
+                      "Other"}
+                  </span>
+
+                  <h3>
+                    {product.name ||
+                      product.title ||
+                      "Product"}
+                  </h3>
+
+                  <p>
+                    {product.description ||
+                      "No description provided."}
+                  </p>
+
+                  <strong>
+                    KES{" "}
+                    {Number(
+                      product.price ||
+                        0
+                    ).toLocaleString()}
+                  </strong>
+
+                  <button
+                    className="secondary-button full"
+                    onClick={async () => {
+                      const seller =
+                        product.seller ||
+                        product.owner ||
+                        {};
+
+                      try {
+                        await api(
+                          "/conversations",
+                          {
+                            method:
+                              "POST",
+                            body:
+                              JSON.stringify(
+                                {
+                                  participantId:
+                                    idOf(
+                                      seller
+                                    ),
+                                  productId:
+                                    idOf(
+                                      product
+                                    ),
+                                }
+                              ),
+                          }
+                        );
+
+                        notify(
+                          "Conversation started"
+                        );
+                      } catch {
+                        notify(
+                          "Could not contact seller"
+                        );
+                      }
+                    }}
+                  >
+                    <MessageSquare
+                      size={16}
+                    />
+                    Contact seller
+                  </button>
+                </div>
+              </article>
+            )
+          )}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Package size={30} />}
+          title="No products found"
+          description="Try another search."
+        />
+      )}
+    </section>
+  );
+}
+
+/* =========================================================
+   NOTIFICATIONS
+   ========================================================= */
+
+function NotificationsView({
+  notify,
+}) {
+  const [items, setItems] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data =
+          await api(
+            "/notifications?limit=30"
+          );
+
+        setItems(
+          extractArray(data)
+        );
+      } catch {
+        notify(
+          "Notifications unavailable"
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [notify]);
+
+  const markRead = async () => {
+    setItems((list) =>
+      list.map((item) => ({
+        ...item,
+        read: true,
+        isRead: true,
+      }))
+    );
+
+    try {
+      await api(
+        "/notifications/read-all",
+        { method: "PATCH" }
+      );
+    } catch {
+      // UI already reflects the optimistic state.
+    }
+  };
+
+  return (
+    <section className="content-view">
+      <PageHeading
+        eyebrow="ACTIVITY"
+        title="Notifications"
+        description="Stay up to date with activity on your account."
+        action={
+          <button
+            className="secondary-button"
+            onClick={markRead}
+          >
+            Mark all read
+          </button>
+        }
+      />
+
+      {loading ? (
+        <div className="loading-box">
+          Loading notifications...
+        </div>
+      ) : items.length ? (
+        <div className="notification-list">
+          {items.map(
+            (item, index) => (
+              <div
+                className={`notification-row ${
+                  item.read ||
+                  item.isRead
+                    ? ""
+                    : "unread-row"
+                }`}
+                key={
+                  idOf(item) ||
+                  index
+                }
+              >
+                <div className="notification-icon">
+                  <Bell size={17} />
+                </div>
+
+                <div>
+                  <strong>
+                    {item.title ||
+                      item.type ||
+                      "CareBox activity"}
+                  </strong>
+
+                  <p>
+                    {item.message ||
+                      item.content ||
+                      "You have new activity."}
+                  </p>
+
+                  <span>
+                    {timeAgo(
+                      item.createdAt
+                    )}
+                  </span>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Bell size={29} />}
+          title="You're all caught up"
+          description="No new notifications."
+        />
+      )}
+    </section>
+  );
+}
+
+/* =========================================================
+   SETTINGS
+   ========================================================= */
 
 function SettingsView({
   user,
   setUser,
-  logout,
   notify,
+  logout,
 }) {
   const [notifications, setNotifications] =
     useState(
-      user?.settings
-        ?.notifications !==
+      user?.settings?.notifications !==
         false
     );
 
   const [publicProfile, setPublicProfile] =
     useState(
-      user?.settings
-        ?.publicProfile !==
+      user?.settings?.publicProfile !==
         false
     );
 
@@ -4417,11 +3790,6 @@ function SettingsView({
 
         if (updated) {
           setUser(updated);
-
-          write(
-            STORAGE.USER,
-            updated
-          );
         }
 
         notify(
@@ -4463,33 +3831,24 @@ function SettingsView({
 
         <button
           className="primary-button full"
-          onClick={
-            saveSettings
-          }
+          onClick={saveSettings}
         >
+          <Save size={16} />
           Save settings
         </button>
       </div>
 
       <div className="danger-zone">
-        <h3>
-          Account
-        </h3>
-
+        <h3>Account</h3>
         <p>
-          Signing out removes the
-          local session from this
-          device.
+          Sign out of this device.
         </p>
 
         <button
           className="danger-button"
           onClick={logout}
         >
-          <Icon
-            name="logout"
-            size={17}
-          />
+          <LogOut size={16} />
           Log out
         </button>
       </div>
@@ -4509,21 +3868,19 @@ function SettingRow({
         <strong>
           {title}
         </strong>
-
         <span>
           {description}
         </span>
       </div>
 
       <button
-        className={
-          checked
-            ? "switch checked"
-            : "switch"
-        }
+        className={`switch ${
+          checked ? "checked" : ""
+        }`}
         onClick={() =>
           onChange(!checked)
         }
+        aria-label={title}
       >
         <span />
       </button>
@@ -4531,9 +3888,9 @@ function SettingRow({
   );
 }
 
-/* ======================================================
-SHARED UI
-====================================================== */
+/* =========================================================
+   SHARED
+   ========================================================= */
 
 function PageHeading({
   eyebrow,
@@ -4544,15 +3901,17 @@ function PageHeading({
   return (
     <div className="page-heading">
       <div>
-        <span className="eyebrow">
-          {eyebrow}
-        </span>
+        {eyebrow && (
+          <span className="eyebrow">
+            {eyebrow}
+          </span>
+        )}
 
         <h1>{title}</h1>
 
-        <p>
-          {description}
-        </p>
+        {description && (
+          <p>{description}</p>
+        )}
       </div>
 
       {action}
@@ -4568,63 +3927,18 @@ function EmptyState({
 }) {
   return (
     <div className="empty-state">
-      <div className="empty-state-icon">
-        <Icon
-          name={icon}
-          size={30}
-        />
+      <div className="empty-icon">
+        {icon}
       </div>
 
       <h2>{title}</h2>
-
       <p>{description}</p>
 
-      {action}
-    </div>
-  );
-}
-
-function Modal({
-  title,
-  subtitle,
-  children,
-  onClose,
-}) {
-  return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        if (
-          e.target ===
-          e.currentTarget
-        ) {
-          onClose();
-        }
-      }}
-    >
-      <div className="modal">
-        <div className="modal-header">
-          <div>
-            <h2>{title}</h2>
-
-            <span>
-              {subtitle}
-            </span>
-          </div>
-
-          <button
-            className="modal-close"
-            onClick={onClose}
-          >
-            <Icon
-              name="close"
-              size={19}
-            />
-          </button>
+      {action && (
+        <div className="empty-action">
+          {action}
         </div>
-
-        {children}
-      </div>
+      )}
     </div>
   );
 }
@@ -4640,7 +3954,6 @@ function PostSkeletons() {
           >
             <div className="skeleton-head">
               <div className="skeleton-circle" />
-
               <div>
                 <div className="skeleton-line wide" />
                 <div className="skeleton-line small" />
@@ -4649,7 +3962,6 @@ function PostSkeletons() {
 
             <div className="skeleton-line" />
             <div className="skeleton-line medium" />
-
             <div className="skeleton-media" />
           </div>
         )
@@ -4658,31 +3970,229 @@ function PostSkeletons() {
   );
 }
 
-function ProductSkeletons() {
-  return (
-    <div className="product-grid">
-      {[1, 2, 3, 4].map(
-        (item) => (
-          <div
-            className="product-card skeleton"
-            key={item}
-          >
-            <div className="skeleton-media" />
+/* =========================================================
+   CANVAS EXPORT
+   ========================================================= */
 
-            <div className="skeleton-line" />
-            <div className="skeleton-line medium" />
-          </div>
+async function renderPostToCanvas(
+  element
+) {
+  /*
+    A dependency-free exporter. It clones the rendered post into a
+    clean canvas-like drawing. Remote images are attempted first.
+    This avoids adding html2canvas to the application bundle.
+  */
+  const width =
+    Math.min(
+      Math.max(
+        element.getBoundingClientRect()
+          .width,
+        320
+      ),
+      1000
+    );
+
+  const clone =
+    element.cloneNode(true);
+
+  clone
+    .querySelectorAll(
+      ".post-actions, .comments, .post-menu, .more"
+    )
+    .forEach((node) =>
+      node.remove()
+    );
+
+  const text =
+    clone.innerText || "";
+
+  const lines =
+    wrapCanvasText(
+      text,
+      65
+    );
+
+  const imageNode =
+    clone.querySelector(
+      ".post-image img"
+    );
+
+  let image = null;
+
+  if (imageNode?.src) {
+    image =
+      await loadImageSafe(
+        imageNode.src
+      );
+  }
+
+  const padding = 28;
+  const lineHeight = 26;
+  const imageHeight =
+    image
+      ? Math.min(
+          520,
+          Math.round(
+            (image.height /
+              image.width) *
+              (width -
+                padding * 2)
+          )
         )
-      )}
-    </div>
+      : 0;
+
+  const canvas =
+    document.createElement(
+      "canvas"
+    );
+
+  canvas.width =
+    Math.ceil(width * 2);
+
+  canvas.height =
+    Math.ceil(
+      (padding * 2 +
+        lines.length *
+          lineHeight +
+        (image
+          ? imageHeight + 18
+          : 0) +
+        55) *
+        2
+    );
+
+  const ctx =
+    canvas.getContext("2d");
+
+  ctx.scale(2, 2);
+
+  ctx.fillStyle =
+    "#ffffff";
+
+  ctx.fillRect(
+    0,
+    0,
+    width,
+    canvas.height / 2
+  );
+
+  ctx.fillStyle =
+    "#111827";
+
+  ctx.font =
+    "600 16px Inter, Arial, sans-serif";
+
+  let y = padding;
+
+  for (const line of lines) {
+    ctx.fillText(
+      line,
+      padding,
+      y
+    );
+    y += lineHeight;
+  }
+
+  if (image) {
+    y += 10;
+
+    ctx.drawImage(
+      image,
+      padding,
+      y,
+      width -
+        padding * 2,
+      imageHeight
+    );
+
+    y += imageHeight + 18;
+  }
+
+  ctx.fillStyle =
+    "#73777b";
+
+  ctx.font =
+    "12px Inter, Arial, sans-serif";
+
+  ctx.fillText(
+    "CareBox Community",
+    padding,
+    y
+  );
+
+  return canvas;
+}
+
+function wrapCanvasText(
+  value,
+  maxChars
+) {
+  const words =
+    String(value)
+      .replace(/\n+/g, " ")
+      .split(/\s+/);
+
+  const lines = [];
+  let current = "";
+
+  for (const word of words) {
+    if (
+      `${current} ${word}`.trim()
+        .length > maxChars
+    ) {
+      if (current) {
+        lines.push(current);
+      }
+      current = word;
+    } else {
+      current =
+        `${current} ${word}`.trim();
+    }
+  }
+
+  if (current) lines.push(current);
+
+  return lines.slice(0, 60);
+}
+
+function loadImageSafe(src) {
+  return new Promise(
+    (resolve) => {
+      const image =
+        new Image();
+
+      image.crossOrigin =
+        "anonymous";
+
+      image.onload = () =>
+        resolve(image);
+
+      image.onerror = () =>
+        resolve(null);
+
+      image.src = src;
+    }
   );
 }
 
-/* ======================================================
-STYLES
-====================================================== */
+/* =========================================================
+   STYLES
+   ========================================================= */
 
 const styles = `
+:root {
+  --blue: #1a73e8;
+  --blue-dark: #1769d2;
+  --text: #111827;
+  --muted: #7b8188;
+  --border: #e5e7e9;
+  --soft: #f4f6f7;
+  --page: #eef1f3;
+  --danger: #d93434;
+  --green: #38bd62;
+  --pink: #f72568;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -4703,8 +4213,8 @@ body {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background: #eef1f3;
-  color: #15171a;
+  background: var(--page);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -4721,19 +4231,32 @@ button {
 }
 
 button:disabled {
-  opacity: .6;
   cursor: not-allowed;
+  opacity: .55;
 }
 
 input,
-textarea,
-select {
+textarea {
   outline: none;
 }
 
 img {
   max-width: 100%;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* APP */
 
 .app-shell {
   min-height: 100vh;
@@ -4750,7 +4273,7 @@ img {
   align-items: center;
   gap: 24px;
   background: rgba(255,255,255,.97);
-  border-bottom: 1px solid #e9ebed;
+  border-bottom: 1px solid var(--border);
   backdrop-filter: blur(14px);
 }
 
@@ -4759,7 +4282,7 @@ img {
   align-items: center;
   gap: 9px;
   background: transparent;
-  color: #111827;
+  color: var(--text);
   font-weight: 800;
   font-size: 17px;
 }
@@ -4770,27 +4293,41 @@ img {
   border-radius: 9px;
   display: grid;
   place-items: center;
-  background: #1a73e8;
+  background: var(--blue);
   color: white;
   font-size: 15px;
 }
 
-.top-search {
-  width: min(450px, 50vw);
-  height: 38px;
+.desktop-search,
+.community-search,
+.search-field-large,
+.panel-search {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.desktop-search {
+  width: min(450px, 50vw);
+  height: 38px;
   padding: 0 13px;
   border-radius: 20px;
   background: #f3f5f6;
-  color: #73777b;
+  color: #777;
 }
 
-.top-search input {
-  width: 100%;
+.desktop-search input,
+.community-search input,
+.search-field-large input,
+.panel-search input {
+  min-width: 0;
+  flex: 1;
   border: 0;
   background: transparent;
+  color: var(--text);
+}
+
+.desktop-search input {
   font-size: 12px;
 }
 
@@ -4816,40 +4353,8 @@ img {
   background: #f3f5f6;
 }
 
-.notification-icon {
-  position: relative;
-}
-
-.notification-count {
-  position: absolute;
-  top: 0;
-  right: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 9px;
-  display: grid;
-  place-items: center;
-  background: #e53935;
-  color: white;
-  border: 2px solid white;
-  font-size: 7px;
-  font-weight: 800;
-}
-
-.avatar {
-  object-fit: cover;
-  border-radius: 50%;
-  display: block;
-}
-
-.avatar-initials {
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #e7edf3;
-  color: #27313b;
-  font-weight: 700;
+.mobile-search-button {
+  display: none;
 }
 
 .profile-dropdown {
@@ -4857,10 +4362,10 @@ img {
   z-index: 200;
   right: 18px;
   top: 57px;
-  width: 245px;
+  width: 255px;
   padding: 8px;
   background: white;
-  border: 1px solid #e5e7e9;
+  border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 15px 45px rgba(0,0,0,.15);
 }
@@ -4910,12 +4415,32 @@ img {
 }
 
 .profile-dropdown .danger {
-  color: #d43b3b;
+  color: var(--danger);
 }
+
+/* AVATAR */
+
+.avatar {
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+  flex-shrink: 0;
+}
+
+.avatar-letter {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e7edf3;
+  color: #26313a;
+  font-weight: 800;
+}
+
+/* PAGE */
 
 .page {
   width: 100%;
-  max-width: 900px;
+  max-width: 920px;
   min-height: calc(100vh - 62px);
   margin: 0 auto;
   padding: 28px 20px 100px;
@@ -4932,227 +4457,98 @@ img {
 .eyebrow {
   display: block;
   margin-bottom: 6px;
-  color: #1a73e8;
+  color: var(--blue);
   font-size: 9px;
   letter-spacing: 1.3px;
   font-weight: 800;
 }
 
-.page-heading h1 {
+.page-heading h1,
+.community-mobile-header h1,
+.inbox-heading h1 {
   margin: 0;
   font-size: 28px;
   letter-spacing: -.7px;
 }
 
-.page-heading p {
-  max-width: 560px;
+.page-heading p,
+.inbox-heading p {
+  max-width: 580px;
   margin: 7px 0 0;
   color: #777d82;
   font-size: 12px;
   line-height: 18px;
 }
 
-.hero {
+/* COMMUNITY */
+
+.community-page {
+  width: min(100%, 650px);
+  margin: 0 auto;
+}
+
+.community-mobile-header {
+  display: none;
+}
+
+.composer {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 30px;
-  border-radius: 20px;
+  gap: 9px;
+  padding: 4px 0 12px;
+}
+
+.mind-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 15px;
+  border: 1px solid #e0e3e5;
+  border-radius: 22px;
   background: white;
-  border: 1px solid #e7e9eb;
-  margin-bottom: 18px;
-}
-
-.hero h1 {
-  margin: 0;
-  font-size: 28px;
-  letter-spacing: -.8px;
-}
-
-.hero p {
-  max-width: 520px;
-  margin: 8px 0 0;
   color: #777;
-  font-size: 12px;
-  line-height: 19px;
-}
-
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(4,1fr);
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.quick-grid button {
-  min-height: 125px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 5px;
-  background: white;
-  border: 1px solid #e7e9eb;
-  border-radius: 15px;
   text-align: left;
-  transition: .18s ease;
-}
-
-.quick-grid button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0,0,0,.06);
-}
-
-.quick-grid strong {
   font-size: 12px;
 }
 
-.quick-grid small {
-  color: #888;
-  font-size: 9px;
+.mind-input:hover {
+  background: #fafafa;
+  border-color: #d1d6da;
 }
 
-.quick-icon {
-  width: 39px;
-  height: 39px;
-  border-radius: 11px;
+.gallery-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
   display: grid;
   place-items: center;
-  margin-bottom: 5px;
+  flex-shrink: 0;
+  background: var(--green);
+  color: white;
 }
 
-.quick-icon.blue {
-  background: #edf4ff;
-  color: #1a73e8;
-}
-
-.quick-icon.green {
-  background: #ebfaef;
-  color: #2fa956;
-}
-
-.quick-icon.purple {
-  background: #f3edff;
-  color: #7449d8;
-}
-
-.quick-icon.orange {
-  background: #fff2e5;
-  color: #e37d23;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3,1fr);
-  gap: 10px;
-  margin-bottom: 30px;
-}
-
-.stat-card {
-  background: white;
-  border: 1px solid #e7e9eb;
-  border-radius: 13px;
-  padding: 16px;
-}
-
-.stat-card strong {
-  display: block;
-  font-size: 22px;
-}
-
-.stat-card span {
-  color: #85898d;
-  font-size: 9px;
-}
-
-.home-section {
-  margin-top: 20px;
-}
-
-.section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.section-heading h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.text-button {
-  background: transparent;
-  color: #1a73e8;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.mini-feed {
-  background: white;
-  border: 1px solid #e7e9eb;
-  border-radius: 15px;
-  overflow: hidden;
-}
-
-.mini-post {
-  display: flex;
-  gap: 10px;
-  padding: 13px;
-  border-bottom: 1px solid #eee;
-}
-
-.mini-post:last-child {
-  border-bottom: 0;
-}
-
-.mini-post strong {
-  font-size: 10px;
-}
-
-.mini-post p {
-  margin: 3px 0;
-  font-size: 10px;
-  color: #333;
-}
-
-.mini-post span {
-  color: #999;
-  font-size: 8px;
+.gallery-button:hover {
+  filter: brightness(.95);
 }
 
 .community-tools {
-  margin-bottom: 15px;
+  margin-bottom: 12px;
 }
 
-.search-field {
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 13px;
-  border-radius: 10px;
+.community-search {
+  height: 39px;
+  padding: 0 12px;
   border: 1px solid #dedfe1;
+  border-radius: 10px;
   background: white;
   color: #777;
 }
 
-.search-field.large {
-  height: 48px;
-  margin-bottom: 20px;
-  border-radius: 13px;
-}
-
-.search-field input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  background: transparent;
+.community-search input {
   font-size: 11px;
 }
 
-.filter-row {
+.category-scroll {
   display: flex;
   gap: 7px;
   overflow-x: auto;
@@ -5160,22 +4556,22 @@ img {
   padding: 9px 0 3px;
 }
 
-.filter-row::-webkit-scrollbar {
+.category-scroll::-webkit-scrollbar {
   display: none;
 }
 
-.filter {
+.category-pill {
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 13px;
-  border-radius: 16px;
+  height: 31px;
+  padding: 0 15px;
+  border-radius: 17px;
   background: #f1f3f4;
-  color: #666;
-  font-size: 9px;
+  color: #5e6367;
+  font-size: 10px;
 }
 
-.filter.active {
-  background: #1a73e8;
+.category-pill.active {
+  background: var(--blue);
   color: white;
   font-weight: 700;
 }
@@ -5189,7 +4585,7 @@ img {
 .post {
   position: relative;
   background: white;
-  border: 1px solid #e5e7e9;
+  border: 1px solid var(--border);
   border-radius: 15px;
   overflow: visible;
 }
@@ -5220,8 +4616,8 @@ img {
 }
 
 .more {
-  width: 30px;
-  height: 30px;
+  width: 31px;
+  height: 31px;
   border-radius: 50%;
   background: transparent;
   color: #777;
@@ -5235,24 +4631,24 @@ img {
 
 .post-menu {
   position: absolute;
-  z-index: 20;
-  top: 48px;
+  z-index: 30;
+  top: 49px;
   right: 13px;
-  width: 160px;
+  width: 180px;
   padding: 5px;
   background: white;
-  border: 1px solid #e5e7e9;
+  border: 1px solid var(--border);
   border-radius: 11px;
   box-shadow: 0 12px 30px rgba(0,0,0,.12);
 }
 
 .post-menu button {
   width: 100%;
-  height: 34px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 9px;
+  padding: 7px 9px;
   border-radius: 7px;
   background: transparent;
   color: #444;
@@ -5265,7 +4661,7 @@ img {
 }
 
 .post-menu .danger {
-  color: #d33;
+  color: var(--danger);
 }
 
 .post-body {
@@ -5289,7 +4685,7 @@ img {
 .see-more {
   padding: 0;
   background: transparent;
-  color: #1a73e8;
+  color: var(--blue);
   font-size: inherit;
   font-weight: 700;
 }
@@ -5309,6 +4705,21 @@ img {
   display: block;
 }
 
+.post-attachment {
+  margin: 0 15px 10px;
+  min-height: 38px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--blue);
+  background: #eef5ff;
+  border-radius: 9px;
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -5317,21 +4728,30 @@ img {
 }
 
 .tags span {
-  color: #1a73e8;
+  color: var(--blue);
   font-size: 9px;
 }
 
 .engagement-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  min-height: 31px;
   padding: 6px 15px;
   color: #85898d;
   font-size: 8px;
 }
 
+.engagement-like {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #f72568;
+}
+
 .post-actions {
   margin: 0 15px;
-  min-height: 40px;
+  min-height: 41px;
   display: grid;
   grid-template-columns: repeat(3,1fr);
   border-top: 1px solid #eee;
@@ -5353,7 +4773,7 @@ img {
 
 .post-actions button.liked,
 .post-actions button.active {
-  color: #1a73e8;
+  color: var(--blue);
   font-weight: 700;
 }
 
@@ -5373,6 +4793,7 @@ img {
   padding: 7px 9px;
   border-radius: 10px;
   background: #f2f3f4;
+  max-width: min(85%, 470px);
 }
 
 .comment-bubble strong {
@@ -5401,21 +4822,27 @@ img {
 .message-compose input {
   flex: 1;
   min-width: 0;
-  height: 34px;
+  height: 35px;
   padding: 0 11px;
   border: 1px solid #ddd;
   border-radius: 18px;
   font-size: 9px;
+  background: white;
+}
+
+.comment-compose input:focus,
+.message-compose input:focus {
+  border-color: var(--blue);
 }
 
 .comment-compose button,
 .message-compose button {
-  width: 34px;
-  height: 34px;
+  width: 35px;
+  height: 35px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: #1a73e8;
+  background: var(--blue);
   color: white;
 }
 
@@ -5426,10 +4853,20 @@ img {
   font-size: 9px;
 }
 
+.feed-end {
+  min-height: 45px;
+  display: grid;
+  place-items: center;
+  color: #999;
+  font-size: 9px;
+}
+
+/* BUTTONS */
+
 .primary-button,
 .secondary-button,
 .danger-button {
-  height: 38px;
+  min-height: 38px;
   padding: 0 15px;
   border-radius: 9px;
   display: inline-flex;
@@ -5441,12 +4878,12 @@ img {
 }
 
 .primary-button {
-  background: #1a73e8;
+  background: var(--blue);
   color: white;
 }
 
 .primary-button:hover {
-  background: #1769d2;
+  background: var(--blue-dark);
 }
 
 .secondary-button {
@@ -5456,13 +4893,569 @@ img {
 
 .danger-button {
   background: #fff0f0;
-  color: #d33434;
+  color: var(--danger);
 }
 
 .primary-button.full,
 .secondary-button.full {
   width: 100%;
 }
+
+/* PROFILE */
+
+.profile-cover {
+  height: 145px;
+  border-radius: 18px 18px 0 0;
+  background:
+    linear-gradient(
+      120deg,
+      #dceaff,
+      #f7faff 50%,
+      #e9f2ff
+    );
+}
+
+.profile-card {
+  position: relative;
+  background: white;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 18px 18px;
+  padding: 0 25px 25px;
+}
+
+.profile-avatar-wrap {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  margin-top: -44px;
+}
+
+.profile-avatar-large {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid white;
+  display: grid;
+  place-items: center;
+}
+
+.profile-avatar-letter {
+  background: #e7edf3;
+  color: #27313b;
+  font-size: 34px;
+  font-weight: 800;
+}
+
+.avatar-edit {
+  position: absolute;
+  right: 0;
+  bottom: 3px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--blue);
+  color: white;
+  border: 2px solid white;
+}
+
+.profile-heading-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.profile-heading-row h1 {
+  margin: 0;
+  font-size: 23px;
+}
+
+.profile-heading-row span {
+  display: block;
+  margin-top: 4px;
+  color: #85898d;
+  font-size: 10px;
+}
+
+.profile-info {
+  margin-top: 17px;
+}
+
+.profile-info p {
+  margin: 0 0 7px;
+  color: #444;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.profile-info span {
+  color: #888;
+  font-size: 9px;
+}
+
+.profile-form {
+  margin-top: 17px;
+  display: grid;
+  gap: 12px;
+}
+
+.profile-form label {
+  display: grid;
+  gap: 6px;
+  color: #666;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.form-input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: white;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.form-input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(26,115,232,.08);
+}
+
+.textarea {
+  min-height: 90px;
+  padding-top: 11px;
+  resize: vertical;
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.profile-stats {
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid #eee;
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  text-align: center;
+}
+
+.profile-stats strong,
+.profile-stats span {
+  display: block;
+}
+
+.profile-stats strong {
+  font-size: 17px;
+}
+
+.profile-stats span {
+  margin-top: 3px;
+  color: #888;
+  font-size: 8px;
+}
+
+/* INBOX */
+
+.inbox-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  min-height: 590px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+.conversation-panel {
+  border-right: 1px solid #eee;
+  overflow-y: auto;
+}
+
+.panel-title {
+  min-height: 49px;
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #eee;
+  font-size: 10px;
+}
+
+.panel-search {
+  margin: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #ddd;
+  border-radius: 18px;
+  color: #777;
+}
+
+.panel-search input {
+  font-size: 9px;
+}
+
+.conversation,
+.person-row {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  border-bottom: 1px solid #f0f0f0;
+  background: white;
+  text-align: left;
+}
+
+.conversation:hover,
+.conversation.active,
+.person-row:hover {
+  background: #f4f8fd;
+}
+
+.conversation > div,
+.person-row > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.conversation strong,
+.person-row strong {
+  display: block;
+  font-size: 10px;
+}
+
+.conversation p {
+  margin: 3px 0;
+  color: #777;
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation span,
+.person-row span {
+  color: #aaa;
+  font-size: 7px;
+}
+
+.unread {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+  font-size: 7px;
+}
+
+.chat-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fbfcfd;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 30px;
+  text-align: center;
+  color: #8b9095;
+}
+
+.chat-empty h3 {
+  margin: 6px 0 0;
+  color: #333;
+  font-size: 15px;
+}
+
+.chat-empty p {
+  max-width: 260px;
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.chat-header {
+  min-height: 63px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  background: white;
+  border-bottom: 1px solid #eee;
+}
+
+.chat-header > div:last-child {
+  min-width: 0;
+}
+
+.chat-header strong,
+.chat-header span {
+  display: block;
+}
+
+.chat-header strong {
+  font-size: 11px;
+}
+
+.chat-header span {
+  margin-top: 3px;
+  color: #999;
+  font-size: 8px;
+}
+
+.chat-back {
+  display: none;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  background: transparent;
+  border-radius: 50%;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.message-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 82%;
+}
+
+.message-row.mine {
+  align-self: flex-end;
+}
+
+.message-bubble {
+  padding: 8px 10px;
+  border-radius: 13px 13px 13px 4px;
+  background: #edf0f2;
+}
+
+.message-row.mine .message-bubble {
+  border-radius: 13px 13px 4px 13px;
+  background: var(--blue);
+  color: white;
+}
+
+.message-bubble p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-bubble span {
+  display: block;
+  margin-top: 3px;
+  opacity: .7;
+  font-size: 7px;
+}
+
+.message-compose {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px;
+  background: white;
+  border-top: 1px solid #eee;
+}
+
+.empty-conversations {
+  min-height: 300px;
+  padding: 30px 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #999;
+}
+
+.empty-conversations strong {
+  color: #444;
+  font-size: 12px;
+}
+
+.empty-conversations span {
+  max-width: 220px;
+  font-size: 9px;
+  line-height: 15px;
+}
+
+/* SEARCH */
+
+.search-field-large {
+  height: 48px;
+  margin-bottom: 20px;
+  padding: 0 14px;
+  border: 1px solid #dedfe1;
+  border-radius: 13px;
+  background: white;
+  color: #777;
+}
+
+.search-field-large input {
+  font-size: 11px;
+}
+
+.search-results {
+  display: grid;
+  gap: 18px;
+}
+
+.search-section {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  overflow: hidden;
+}
+
+.search-section h2 {
+  margin: 0;
+  padding: 13px 14px;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+}
+
+.search-person,
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #f1f1f1;
+}
+
+.search-person:last-child,
+.search-result:last-child {
+  border-bottom: 0;
+}
+
+.search-person > div,
+.search-result {
+  min-width: 0;
+}
+
+.search-person strong,
+.search-person span,
+.search-result strong,
+.search-result span {
+  display: block;
+}
+
+.search-person strong,
+.search-result strong {
+  font-size: 10px;
+}
+
+.search-person span,
+.search-result span {
+  margin-top: 3px;
+  color: #888;
+  font-size: 8px;
+}
+
+.small-empty {
+  padding: 15px;
+  color: #999;
+  font-size: 9px;
+}
+
+/* HOME */
+
+.hero-card {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 24px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  margin-bottom: 14px;
+}
+
+.hero-card h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.hero-card p {
+  max-width: 520px;
+  margin: 6px 0 0;
+  color: #777;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4,1fr);
+  gap: 10px;
+}
+
+.quick-grid button {
+  min-height: 125px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  text-align: left;
+  color: var(--blue);
+}
+
+.quick-grid strong {
+  color: #222;
+  font-size: 11px;
+}
+
+.quick-grid span {
+  color: #888;
+  font-size: 8px;
+}
+
+/* PRODUCTS */
 
 .product-grid {
   display: grid;
@@ -5472,7 +5465,7 @@ img {
 
 .product-card {
   background: white;
-  border: 1px solid #e5e7e9;
+  border: 1px solid var(--border);
   border-radius: 15px;
   overflow: hidden;
 }
@@ -5496,8 +5489,8 @@ img {
   padding: 12px;
 }
 
-.product-category {
-  color: #1a73e8;
+.product-info > span {
+  color: var(--blue);
   font-size: 8px;
   font-weight: 700;
   text-transform: uppercase;
@@ -5509,7 +5502,7 @@ img {
 }
 
 .product-info p {
-  height: 32px;
+  height: 34px;
   overflow: hidden;
   margin: 0 0 8px;
   color: #777;
@@ -5517,424 +5510,32 @@ img {
   line-height: 15px;
 }
 
-.price {
+.product-info > strong {
   display: block;
   margin-bottom: 10px;
   font-size: 14px;
 }
 
-.seller {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  color: #666;
-  font-size: 8px;
-}
-
-.inbox-layout {
-  display: grid;
-  grid-template-columns: 290px 1fr;
-  min-height: 580px;
-  background: white;
-  border: 1px solid #e5e7e9;
-  border-radius: 15px;
-  overflow: hidden;
-}
-
-.conversation-list {
-  border-right: 1px solid #eee;
-  overflow-y: auto;
-}
-
-.conversation {
-  position: relative;
-  width: 100%;
-  display: flex;
-  gap: 9px;
-  padding: 12px;
-  border-bottom: 1px solid #f0f0f0;
-  background: white;
-  text-align: left;
-}
-
-.conversation:hover,
-.conversation.active {
-  background: #f4f8fd;
-}
-
-.conversation > div {
-  min-width: 0;
-  flex: 1;
-}
-
-.conversation strong {
-  font-size: 10px;
-}
-
-.conversation p {
-  margin: 3px 0;
-  color: #777;
-  font-size: 9px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.conversation span {
-  color: #aaa;
-  font-size: 7px;
-}
-
-.unread {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #1a73e8;
-  color: white;
-  font-size: 7px;
-}
-
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.chat-header {
-  min-height: 58px;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border-bottom: 1px solid #eee;
-  font-size: 11px;
-}
-
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #aaa;
-  text-align: center;
-}
-
-.chat-empty h3 {
-  margin: 10px 0 4px;
-  color: #444;
-  font-size: 13px;
-}
-
-.chat-empty p {
-  margin: 0;
-  font-size: 9px;
-}
-
-.messages {
-  flex: 1;
-  padding: 15px;
-  overflow-y: auto;
-}
-
-.message {
-  max-width: 75%;
-  margin-bottom: 9px;
-}
-
-.message > div {
-  padding: 9px 11px;
-  border-radius: 13px 13px 13px 3px;
-  background: #f0f2f3;
-  font-size: 10px;
-  line-height: 15px;
-}
-
-.message span {
-  display: block;
-  margin-top: 3px;
-  color: #aaa;
-  font-size: 7px;
-}
-
-.message.mine {
-  margin-left: auto;
-}
-
-.message.mine > div {
-  background: #1a73e8;
-  color: white;
-  border-radius: 13px 13px 3px 13px;
-}
-
-.message.mine span {
-  text-align: right;
-}
-
-.message-compose {
-  padding: 10px;
-  display: flex;
-  gap: 7px;
-  border-top: 1px solid #eee;
-}
-
-.notification-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.notification {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 13px;
-  border-radius: 12px;
-  background: white;
-  border: 1px solid #e7e9eb;
-}
-
-.unread-notification {
-  background: #f7fbff;
-}
-
-.notification-icon-box {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: #edf4ff;
-  color: #1a73e8;
-}
-
-.notification strong {
-  font-size: 10px;
-}
-
-.notification p {
-  margin: 3px 0;
-  color: #666;
-  font-size: 9px;
-  line-height: 14px;
-}
-
-.notification span {
-  color: #999;
-  font-size: 7px;
-}
-
-.notification-unread-dot {
-  position: absolute;
-  right: 12px;
-  top: 14px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #1a73e8;
-}
-
-.search-results {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.search-section {
-  background: white;
-  border: 1px solid #e6e8e9;
-  border-radius: 13px;
-  padding: 14px;
-}
-
-.search-section h2 {
-  margin: 0 0 10px;
-  font-size: 13px;
-}
-
-.search-user,
-.search-result {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 0;
-  border-bottom: 1px solid #eee;
-}
-
-.search-result {
-  justify-content: space-between;
-}
-
-.search-user strong,
-.search-result strong {
-  display: block;
-  font-size: 10px;
-}
-
-.search-user span,
-.search-result span {
-  display: block;
-  margin-top: 3px;
-  color: #888;
-  font-size: 8px;
-}
-
-.small-empty {
-  color: #999;
-  font-size: 9px;
-}
-
-.profile-page {
-  max-width: 760px;
-  margin: 0 auto;
-  background: white;
-  border-radius: 18px;
-  overflow: hidden;
-  border: 1px solid #e5e7e9;
-}
-
-.profile-cover {
-  height: 145px;
-  background:
-    linear-gradient(
-      135deg,
-      #1a73e8,
-      #65a9ef
-    );
-}
-
-.profile-main {
-  position: relative;
-  padding: 0 25px 30px;
-}
-
-.profile-avatar-large {
-  position: relative;
-  width: 100px;
-  height: 100px;
-  margin-top: -50px;
-  border: 5px solid white;
-  border-radius: 50%;
-  background: #e8edf2;
-  display: grid;
-  place-items: center;
-  color: #34414d;
-  font-size: 29px;
-  font-weight: 800;
-  overflow: visible;
-}
-
-.profile-avatar-large img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 50%;
-}
-
-.profile-avatar-large button {
-  position: absolute;
-  right: -3px;
-  bottom: 2px;
-  width: 29px;
-  height: 29px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #1a73e8;
-  color: white;
-  border: 3px solid white;
-}
-
-.profile-title {
-  margin-top: 13px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
-}
-
-.profile-title h1 {
-  margin: 0;
-  font-size: 23px;
-}
-
-.profile-title span {
-  display: block;
-  margin-top: 3px;
-  color: #888;
-  font-size: 9px;
-}
-
-.profile-info {
-  margin-top: 15px;
-}
-
-.profile-info p {
-  margin: 0 0 6px;
-  color: #444;
-  font-size: 10px;
-  line-height: 17px;
-}
-
-.profile-info > span {
-  color: #888;
-  font-size: 9px;
-}
-
-.profile-form {
-  max-width: 500px;
-  margin-top: 15px;
-}
-
-.profile-actions {
-  display: flex;
-  gap: 7px;
-  justify-content: flex-end;
-}
-
-.profile-stats {
-  display: flex;
-  gap: 35px;
-  margin-top: 25px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
-}
-
-.profile-stats strong,
-.profile-stats span {
-  display: block;
-}
-
-.profile-stats strong {
-  font-size: 17px;
-}
-
-.profile-stats span {
-  margin-top: 3px;
-  color: #888;
-  font-size: 8px;
-}
+/* SETTINGS */
 
 .settings-card,
-.danger-zone {
+.danger-zone,
+.notification-list {
   background: white;
-  border: 1px solid #e5e7e9;
-  border-radius: 14px;
-  padding: 15px;
-  margin-bottom: 15px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+}
+
+.settings-card {
+  padding: 7px 15px 15px;
 }
 
 .setting-row {
+  min-height: 65px;
   display: flex;
-  justify-content: space-between;
-  gap: 15px;
   align-items: center;
-  padding: 14px 0;
+  justify-content: space-between;
+  gap: 20px;
   border-bottom: 1px solid #eee;
 }
 
@@ -5949,175 +5550,95 @@ img {
 
 .setting-row span {
   margin-top: 4px;
-  max-width: 450px;
   color: #888;
   font-size: 8px;
-  line-height: 13px;
 }
 
 .switch {
-  width: 42px;
-  height: 24px;
-  flex-shrink: 0;
+  width: 39px;
+  height: 23px;
   padding: 3px;
-  border-radius: 20px;
-  background: #d7dadd;
-  text-align: left;
+  border-radius: 13px;
+  background: #d5d9dc;
 }
 
 .switch span {
-  width: 18px;
-  height: 18px;
-  display: block;
+  width: 17px;
+  height: 17px;
+  margin: 0;
   border-radius: 50%;
   background: white;
-  transition: .2s;
+  transition: transform .18s ease;
 }
 
 .switch.checked {
-  background: #1a73e8;
+  background: var(--blue);
 }
 
 .switch.checked span {
-  transform: translateX(18px);
+  transform: translateX(16px);
+}
+
+.danger-zone {
+  margin-top: 15px;
+  padding: 18px;
 }
 
 .danger-zone h3 {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .danger-zone p {
   color: #888;
   font-size: 9px;
-  line-height: 14px;
 }
 
-.empty-state {
-  min-height: 300px;
-  padding: 50px 20px;
+/* NOTIFICATIONS */
+
+.notification-row {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid #eee;
 }
 
-.empty-state-icon {
-  width: 58px;
-  height: 58px;
+.notification-row:last-child {
+  border-bottom: 0;
+}
+
+.notification-icon {
+  width: 35px;
+  height: 35px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: #edf4ff;
-  color: #1a73e8;
+  color: var(--blue);
 }
 
-.empty-state h2 {
-  margin: 13px 0 5px;
-  font-size: 16px;
-}
-
-.empty-state p {
-  max-width: 300px;
-  margin: 0 0 14px;
-  color: #888;
-  font-size: 10px;
-  line-height: 16px;
-}
-
-.empty-mini {
-  padding: 35px;
-  background: white;
-  border: 1px solid #e7e9eb;
-  border-radius: 15px;
-  text-align: center;
-  color: #999;
+.notification-row strong {
   font-size: 10px;
 }
 
-.feed-end {
-  min-height: 60px;
-  padding: 25px;
-  text-align: center;
-  color: #aaa;
+.notification-row p {
+  margin: 4px 0;
+  color: #555;
   font-size: 9px;
+  line-height: 14px;
 }
 
-.loading-box {
-  padding: 40px;
-  text-align: center;
+.notification-row span {
   color: #999;
-  font-size: 10px;
+  font-size: 7px;
 }
 
-.skeleton {
-  overflow: hidden;
+.unread-row {
+  background: #f7fbff;
 }
 
-.skeleton-head {
-  display: flex;
-  gap: 10px;
-  padding: 15px;
-}
-
-.skeleton-circle,
-.skeleton-line,
-.skeleton-media {
-  background:
-    linear-gradient(
-      90deg,
-      #eee,
-      #f8f8f8,
-      #eee
-    );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
-}
-
-.skeleton-circle {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-}
-
-.skeleton-line {
-  width: 80%;
-  height: 9px;
-  margin: 9px 15px;
-  border-radius: 5px;
-}
-
-.skeleton-line.wide {
-  width: 120px;
-  margin: 7px 0;
-}
-
-.skeleton-line.small {
-  width: 70px;
-  margin: 0;
-}
-
-.skeleton-line.medium {
-  width: 50%;
-}
-
-.skeleton-media {
-  width: calc(100% - 30px);
-  height: 200px;
-  margin: 15px;
-  border-radius: 10px;
-}
-
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
-  }
-
-  to {
-    background-position: -200% 0;
-  }
-}
+/* MODAL */
 
 .modal-backdrop {
   position: fixed;
@@ -6127,26 +5648,26 @@ img {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0,0,0,.48);
+  background: rgba(10,15,20,.45);
   backdrop-filter: blur(3px);
 }
 
 .modal {
-  width: min(580px, 100%);
+  width: 100%;
+  max-width: 570px;
   max-height: 92vh;
   overflow-y: auto;
   background: white;
-  border-radius: 19px 19px 12px 12px;
-  box-shadow: 0 -15px 50px rgba(0,0,0,.2);
-  animation: modalUp .2s ease;
+  border-radius: 20px 20px 12px 12px;
+  box-shadow: 0 -8px 30px rgba(0,0,0,.2);
+  animation: modal-up .2s ease-out;
 }
 
-@keyframes modalUp {
+@keyframes modal-up {
   from {
     transform: translateY(25px);
     opacity: 0;
   }
-
   to {
     transform: translateY(0);
     opacity: 1;
@@ -6154,68 +5675,54 @@ img {
 }
 
 .modal-header {
-  min-height: 62px;
-  padding: 0 16px;
+  min-height: 68px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 15px;
   border-bottom: 1px solid #eee;
 }
 
 .modal-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
 }
 
-.modal-header span {
-  display: block;
-  margin-top: 3px;
+.modal-header p {
+  margin: 4px 0 0;
   color: #888;
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .modal-close {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: #f1f2f3;
+  color: #333;
 }
 
 .modal-form {
-  padding: 15px;
-}
-
-.form-error {
-  margin-bottom: 10px;
-  padding: 9px;
-  border-radius: 8px;
-  background: #fff0f0;
-  color: #c33;
-  font-size: 9px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
 }
 
 .image-picker {
-  min-height: 150px;
-  margin-bottom: 10px;
+  min-height: 145px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border: 1.5px dashed #d5d9dc;
-  border-radius: 11px;
+  gap: 7px;
+  border: 2px dashed #d8dce0;
+  border-radius: 12px;
   background: #fafbfc;
-  color: #777;
+  color: #888;
   cursor: pointer;
   overflow: hidden;
-}
-
-.image-picker img {
-  width: 100%;
-  max-height: 260px;
-  object-fit: contain;
 }
 
 .image-picker strong {
@@ -6224,36 +5731,30 @@ img {
 }
 
 .image-picker span {
-  font-size: 8px;
+  font-size: 9px;
 }
 
-.form-input {
+.image-picker img {
   width: 100%;
-  min-height: 42px;
-  margin-bottom: 9px;
-  padding: 0 11px;
-  border: 1px solid #ddd;
-  border-radius: 9px;
-  background: white;
-  font-size: 10px;
+  max-height: 270px;
+  object-fit: contain;
 }
 
-.form-input:focus {
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 3px rgba(26,115,232,.08);
-}
-
-.textarea {
-  height: 100px;
+.form-error {
+  margin: 12px 14px 0;
   padding: 10px 11px;
-  resize: vertical;
+  border-radius: 9px;
+  background: #fff0f0;
+  color: var(--danger);
+  font-size: 9px;
+  line-height: 14px;
 }
 
 .modal-user {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 5px 0 12px;
+  padding: 4px 2px;
 }
 
 .modal-user strong,
@@ -6267,214 +5768,422 @@ img {
 
 .modal-user span {
   margin-top: 2px;
-  color: #888;
-  font-size: 7px;
+  color: #999;
+  font-size: 8px;
 }
 
-.floating-button {
-  position: fixed;
-  z-index: 120;
-  right: 28px;
-  bottom: 28px;
-  width: 51px;
-  height: 51px;
-  border-radius: 50%;
+/* EMPTY / LOADING */
+
+.empty-state {
+  min-height: 300px;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #888;
+}
+
+.empty-icon {
+  width: 57px;
+  height: 57px;
+  margin-bottom: 12px;
   display: grid;
   place-items: center;
-  background: #1a73e8;
-  color: white;
-  box-shadow: 0 8px 25px rgba(26,115,232,.35);
+  border-radius: 50%;
+  background: #edf4ff;
+  color: var(--blue);
 }
+
+.empty-state h2 {
+  margin: 0 0 6px;
+  color: #222;
+  font-size: 16px;
+}
+
+.empty-state p {
+  max-width: 300px;
+  margin: 0;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.empty-action {
+  margin-top: 14px;
+}
+
+.loading-box {
+  min-height: 100px;
+  display: grid;
+  place-items: center;
+  color: #888;
+  font-size: 10px;
+}
+
+.skeleton {
+  padding: 15px;
+  overflow: hidden;
+}
+
+.skeleton-head {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.skeleton-circle,
+.skeleton-line,
+.skeleton-media {
+  background:
+    linear-gradient(
+      90deg,
+      #eeeeee,
+      #f7f7f7,
+      #eeeeee
+    );
+  background-size: 200% 100%;
+  animation: skeleton 1.3s infinite;
+  border-radius: 7px;
+}
+
+.skeleton-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+.skeleton-line {
+  width: 82%;
+  height: 10px;
+  margin-bottom: 9px;
+}
+
+.skeleton-line.wide {
+  width: 150px;
+}
+
+.skeleton-line.small {
+  width: 75px;
+}
+
+.skeleton-line.medium {
+  width: 52%;
+}
+
+.skeleton-media {
+  width: 100%;
+  height: 260px;
+  margin-top: 16px;
+}
+
+@keyframes skeleton {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* BOTTOM NAV */
 
 .bottom-nav {
   position: fixed;
-  z-index: 110;
+  z-index: 300;
+  left: 50%;
   bottom: 0;
-  left: 0;
+  transform: translateX(-50%);
   width: 100%;
-  height: 64px;
-  display: none;
+  max-width: 920px;
+  height: 62px;
+  display: grid;
   grid-template-columns: repeat(4,1fr);
   background: rgba(255,255,255,.98);
-  border-top: 1px solid #e6e8ea;
-  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0,0,0,.04);
 }
 
-.nav-button {
+.nav-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
   background: transparent;
-  color: #666;
-  font-size: 8px;
+  color: #555;
+  font-size: 9px;
 }
 
-.nav-button.active {
-  color: #1a73e8;
+.nav-item.active {
+  color: var(--blue);
   font-weight: 700;
 }
 
-.refresh-indicator {
-  position: fixed;
-  z-index: 1000;
-  top: 70px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 7px 12px;
-  border-radius: 20px;
-  background: #222;
-  color: white;
-  font-size: 8px;
+.nav-item:active {
+  transform: scale(.94);
 }
+
+.fab {
+  position: fixed;
+  z-index: 350;
+  left: 50%;
+  bottom: 35px;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--blue);
+  color: white;
+  box-shadow: 0 4px 16px rgba(26,115,232,.35);
+}
+
+.fab:hover {
+  transform: translateX(-50%) scale(1.05);
+}
+
+/* TOAST */
 
 .toast {
   position: fixed;
-  z-index: 1000;
+  z-index: 700;
   left: 50%;
-  bottom: 25px;
+  bottom: 80px;
   transform: translateX(-50%);
+  max-width: min(90vw, 420px);
+  min-height: 38px;
+  padding: 9px 13px;
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 10px 15px;
-  border-radius: 22px;
-  background: #202326;
+  border-radius: 20px;
+  background: #1e2328;
   color: white;
   box-shadow: 0 8px 25px rgba(0,0,0,.2);
   font-size: 9px;
 }
 
-@media (max-width: 760px) {
-  .topbar {
-    padding: 0 12px;
-    gap: 8px;
+/* TABLET */
+
+@media (min-width: 601px) {
+  .bottom-nav {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
   }
 
-  .brand span:last-child {
+  .fab {
+    bottom: 36px;
+  }
+}
+
+/* MOBILE */
+
+@media (max-width: 700px) {
+  body {
+    background: white;
+  }
+
+  .topbar {
+    height: 56px;
+    padding: 0 13px;
+  }
+
+  .desktop-search {
     display: none;
   }
 
-  .top-search {
-    flex: 1;
-    width: auto;
+  .mobile-search-button {
+    display: grid;
   }
 
   .page {
-    padding: 20px 12px 90px;
+    min-height: calc(100vh - 56px);
+    padding: 14px 13px 90px;
+  }
+
+  .community-mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0 9px;
+  }
+
+  .community-mobile-header h1 {
+    font-size: 18px;
+    letter-spacing: -.35px;
+  }
+
+  .mobile-refresh {
+    width: 35px;
+    height: 35px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #f2f4f5;
+    color: #555;
+  }
+
+  .page-heading {
+    margin-bottom: 17px;
+  }
+
+  .page-heading h1,
+  .inbox-heading h1 {
+    font-size: 22px;
+  }
+
+  .page-heading p,
+  .inbox-heading p {
+    font-size: 10px;
+  }
+
+  .inbox-heading {
+    align-items: flex-start;
+  }
+
+  .inbox-heading .secondary-button {
+    min-width: 115px;
+  }
+
+  .community-page {
+    width: 100%;
+  }
+
+  .composer {
+    padding-top: 3px;
+  }
+
+  .post {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    margin-left: -13px;
+    margin-right: -13px;
+  }
+
+  .feed {
+    gap: 7px;
+  }
+
+  .post-image {
+    border-radius: 8px;
+  }
+
+  .inbox-layout {
+    grid-template-columns: 1fr;
+    min-height: 570px;
+  }
+
+  .conversation-panel {
+    border-right: 0;
+    border-bottom: 1px solid #eee;
+    max-height: 350px;
+  }
+
+  .chat-panel {
+    min-height: 420px;
+  }
+
+  .chat-back {
+    display: grid;
+  }
+
+  .product-grid {
+    grid-template-columns: repeat(2,1fr);
   }
 
   .quick-grid {
     grid-template-columns: repeat(2,1fr);
   }
 
-  .product-grid {
-    grid-template-columns: repeat(2,1fr);
+  .profile-card {
+    padding: 0 17px 20px;
   }
 
-  .inbox-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .conversation-list {
-    max-height: 250px;
-    border-right: 0;
-    border-bottom: 1px solid #eee;
-  }
-
-  .chat-panel {
-    min-height: 400px;
-  }
-
-  .bottom-nav {
-    display: grid;
-  }
-
-  .floating-button {
-    right: 18px;
-    bottom: 78px;
-    width: 47px;
-    height: 47px;
-  }
-
-  .profile-dropdown {
-    right: 10px;
+  .profile-heading-row {
+    align-items: flex-start;
   }
 }
 
-@media (max-width: 480px) {
-  .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
+/* SMALL PHONES */
+
+@media (max-width: 390px) {
+  .brand {
+    font-size: 15px;
   }
 
-  .page-heading h1 {
-    font-size: 24px;
+  .top-actions {
+    gap: 0;
   }
 
-  .hero {
-    padding: 20px;
-  }
-
-  .hero h1 {
-    font-size: 22px;
-  }
-
-  .stats-grid {
+  .composer {
     gap: 7px;
   }
 
-  .stat-card {
-    padding: 12px;
+  .mind-input {
+    height: 38px;
+    font-size: 11px;
   }
 
-  .stat-card strong {
-    font-size: 18px;
+  .gallery-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .category-pill {
+    padding: 0 13px;
+    font-size: 9px;
+  }
+
+  .post-head {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .post-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .post-image {
+    width: calc(100% - 24px);
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+
+  .tags,
+  .engagement-row {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .post-actions {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+
+  .post-actions button {
+    font-size: 8px;
   }
 
   .product-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-grid {
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
   }
 
-  .product-info {
-    padding: 9px;
-  }
-
-  .product-info h3 {
-    font-size: 10px;
-  }
-
-  .price {
-    font-size: 12px;
-  }
-
-  .profile-main {
-    padding-left: 15px;
-    padding-right: 15px;
-  }
-
-  .profile-title {
-    flex-direction: column;
+  .quick-grid button {
+    min-height: 105px;
+    padding: 13px;
   }
 
   .modal-backdrop {
-    padding: 0;
+    padding: 8px;
   }
 
   .modal {
-    border-radius: 18px 18px 0 0;
-    max-height: 95vh;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
+    border-radius: 17px 17px 10px 10px;
   }
 }
 `;
+

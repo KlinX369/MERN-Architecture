@@ -14,6 +14,11 @@ const staffSchema = new mongoose.Schema({
         unique: true,
         sparse: true
     },
+    linkedinId: {
+        type: String,
+        unique: true,
+        sparse: true,
+    },
     name: {
         type: String,
         default: 'New User'

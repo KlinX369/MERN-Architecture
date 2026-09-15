@@ -283,6 +283,7 @@ export default function Login() {
                 href={`${BACKEND_URL}/auth/linkedin`}
                 className="social-button linkedin-button"
               >
+                
                 <LinkedInIcon />
                 <span>LinkedIn</span>
               </a>
