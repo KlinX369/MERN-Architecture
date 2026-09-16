@@ -19,6 +19,11 @@ const staffSchema = new mongoose.Schema({
         unique: true,
         sparse: true,
     },
+    githubId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
     name: {
         type: String,
         default: 'New User'

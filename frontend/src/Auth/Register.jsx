@@ -87,9 +87,9 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const FacebookIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07c0 6.02 4.39 11 10.13 11.93v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.69.24 2.69.24v2.98h-1.52c-1.49 0-1.95.93-1.95 1.88v2.25h3.32l-.53 3.49h-2.79V24C19.61 23.07 24 18.09 24 12.07Z" />
+const GitHubIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.05c-3.34.73-4.04-1.61-4.04-1.61-.55-1.4-1.34-1.77-1.34-1.77-1.09-.75.08-.74.08-.74 1.2.09 1.83 1.23 1.83 1.23 1.07 1.83 2.81 1.3 3.5.99.11-.77.42-1.3.76-1.6-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.38 1.23-3.22-.12-.3-.53-1.52.12-3.17 0 0 1-.32 3.3 1.23a11.46 11.46 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23.65 1.65.24 2.87.12 3.17.77.84 1.23 1.91 1.23 3.22 0 4.62-2.8 5.64-5.48 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z" />
   </svg>
 );
 
@@ -414,11 +414,11 @@ export default function Register() {
               </a>
 
               <a
-                href={`${BACKEND_URL}/auth/facebook`}
-                className="social-button facebook-button"
+                href={`${BACKEND_URL}/auth/github`}
+                className="social-button github-button"
               >
-                <FacebookIcon />
-                <span>Facebook</span>
+                <GitHubIcon />
+                <span>GitHub</span>
               </a>
 
               <a
@@ -1008,13 +1008,13 @@ body {
     1px solid #dedee3;
 }
 
-.facebook-button {
+.github-button {
   color: #ffffff;
 
-  background: #1877f2;
+  background: #18181b;
 
   border:
-    1px solid #1877f2;
+    1px solid #18181b;
 }
 
 .linkedin-button {
