@@ -206,6 +206,9 @@ export default function Login() {
                   <label htmlFor="login-password">
                     Password
                   </label>
+                  <Link to="/forgot-password" className="forgot-password-link">
+                    Forgot password?
+                  </Link>
                 </div>
 
                 <div className="password-wrapper">
@@ -585,6 +588,17 @@ body {
   align-items: center;
 
   justify-content: space-between;
+}
+
+.forgot-password-link {
+  color: #2563eb;
+  font-size: 7px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.forgot-password-link:hover {
+  text-decoration: underline;
 }
 
 .field input {
