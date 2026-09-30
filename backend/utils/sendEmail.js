@@ -7,12 +7,16 @@ const nodemailer = require('nodemailer');
 // EMAIL TRANSPORTER
 // =========================================================
 
+const emailUser = process.env.EMAIL_USER?.trim();
+const emailAppPassword = process.env.EMAIL_APP_PASSWORD;
+const supportEmail = process.env.SUPPORT_EMAIL?.trim();
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
 
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
+    user: emailUser,
+    pass: emailAppPassword
   }
 });
 
@@ -39,6 +43,16 @@ const sendOTPEmail = async (
 ) => {
 
   try {
+
+    // =====================================================
+    // ENVIRONMENT CHECK
+    // =====================================================
+
+    if (!emailUser || !emailAppPassword) {
+      throw new Error(
+        'Missing email environment variables: EMAIL_USER and EMAIL_APP_PASSWORD'
+      );
+    }
 
     // Determine which type of email is being sent
     const isPasswordReset = purpose === 'password-reset';
@@ -84,7 +98,9 @@ const sendOTPEmail = async (
 
     const mailOptions = {
 
-      from: `"EduSphere" <${process.env.EMAIL_USER}>`,
+      from: `"EduSphere" <${emailUser}>`,
+
+      ...(supportEmail ? { replyTo: supportEmail } : {}),
 
       to: email,
 

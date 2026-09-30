@@ -1,30 +1,158 @@
 // middleware/authMiddleware.js
+
 const jwt = require('jsonwebtoken');
+const Staff = require('../models/Staff');
 
-exports.protect = (req, res, next) => {
-    // 1. Get the token safely without optional chaining
+
+// =========================================================
+// JWT AUTHENTICATION
+// =========================================================
+
+exports.protect = async (
+    req,
+    res,
+    next
+) => {
+
     let token;
-    const authHeader = req.header('Authorization');
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.split(' ')[1];
+    const authHeader =
+        req.header('Authorization') ||
+        req.headers.authorization;
+
+    if (
+        authHeader &&
+        authHeader.startsWith('Bearer ')
+    ) {
+        token =
+            authHeader.split(' ')[1];
     }
 
-    // 2. If there's no token, reject the request
     if (!token) {
-        return res.status(401).json({ message: 'No token, authorization denied' });
+        return res.status(401).json({
+            message:
+                'Not authorized, no token provided'
+        });
     }
 
     try {
-        // 3. Verify the token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey');
 
-        // 4. Attach the decoded user payload
-        req.user = decoded;
+        if (!process.env.JWT_SECRET) {
+            throw new Error(
+                'JWT_SECRET is not configured'
+            );
+        }
 
-        // 5. Pass control to the next function
+        const decoded =
+            jwt.verify(
+                token,
+                process.env.JWT_SECRET
+            );
+
+        if (!decoded.id) {
+            return res.status(401).json({
+                message:
+                    'Invalid authentication token'
+            });
+        }
+
+        /*
+         * Fetch current user without password.
+         */
+        const currentUser =
+            await Staff.findById(
+                decoded.id
+            ).select('-password');
+
+        if (!currentUser) {
+            return res.status(401).json({
+                message:
+                    'User belonging to this token no longer exists'
+            });
+        }
+
+        if (!currentUser.isActive) {
+            return res.status(403).json({
+                message:
+                    'This account has been deactivated'
+            });
+        }
+
+        /*
+         * Password reset invalidates JWTs issued before
+         * passwordChangedAt.
+         */
+        if (
+            currentUser.passwordChangedAt &&
+            decoded.iat
+        ) {
+
+            const passwordChangedAt =
+                new Date(
+                    currentUser.passwordChangedAt
+                ).getTime();
+
+            const tokenIssuedAt =
+                decoded.iat * 1000;
+
+            if (
+                tokenIssuedAt <
+                passwordChangedAt
+            ) {
+                return res.status(401).json({
+                    message:
+                        'Authentication session expired. Please log in again.'
+                });
+            }
+        }
+
+        req.user =
+            currentUser;
+
         next();
+
     } catch (error) {
-        res.status(401).json({ message: 'Token is not valid' });
+
+        console.error(
+            'Authentication middleware error:',
+            error.message
+        );
+
+        return res.status(401).json({
+            message:
+                'Token is invalid or expired'
+        });
     }
+};
+
+
+// =========================================================
+// ROLE-BASED AUTHORIZATION
+// =========================================================
+
+exports.authorize = (
+    ...allowedRoles
+) => {
+
+    return (
+        req,
+        res,
+        next
+    ) => {
+
+        if (
+            !req.user ||
+            !allowedRoles.includes(
+                req.user.role
+            )
+        ) {
+
+            return res.status(403).json({
+                message:
+                    `Forbidden: Role '${req.user ? req.user.role : 'Guest'}' lacks access permission`
+            });
+        }
+
+        next();
+    };
 };

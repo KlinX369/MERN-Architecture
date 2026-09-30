@@ -1,114 +1,254 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import {
+  useNavigate,
+  useLocation,
+  Link
+} from 'react-router-dom';
+
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  'http://localhost:5000';
 
 export default function OtpVerification() {
+
   const [otp, setOtp] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] =
+    useState(false);
 
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate =
+    useNavigate();
 
-  // Retrieve the email and purpose passed from the previous page
-  const email = location.state?.email;
-  const purpose = location.state?.purpose || 'authentication';
+  const location =
+    useLocation();
 
-  // Determine whether this OTP is for password reset
-  const isPasswordReset = purpose === 'password-reset';
+  // Retrieve email and purpose
+  const email =
+    location.state?.email;
+
+  const purpose =
+    location.state?.purpose ||
+    'authentication';
+
+  const isPasswordReset =
+    purpose === 'password-reset';
+
 
   useEffect(() => {
-    // If someone navigates to /otp-verification directly without an email,
-    // send them back to the login page
+
     if (!email) {
-      navigate('/login');
-    }
-  }, [email, navigate]);
-
-  const handleVerifyOTP = async (e) => {
-    e.preventDefault();
-
-    if (otp.length !== 6) {
-      alert("Please enter the 6-digit verification code.");
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      // Password reset uses a different endpoint.
-      // Normal login/registration OTP continues using the existing endpoint.
-      const endpoint = isPasswordReset
-        ? 'http://localhost:5000/api/auth/verify-reset-otp'
-        : 'http://localhost:5000/api/auth/verify-otp';
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          otp,
-        }),
+      navigate('/login', {
+        replace: true
       });
+    }
 
-      const data = await response.json();
+  }, [
+    email,
+    navigate
+  ]);
 
-      if (response.ok) {
 
-        /* =====================================================
-           PASSWORD RESET FLOW
-           ===================================================== */
+  const handleVerifyOTP =
+    async (e) => {
 
-        if (isPasswordReset) {
-          // The backend should return a temporary reset token
-          // after successfully verifying the reset OTP.
-          if (!data.resetToken) {
-            alert("Verification succeeded, but no reset token was received.");
-            return;
-          }
+      e.preventDefault();
 
-          navigate('/forgot-password', {
-            state: {
-              email,
-              resetToken: data.resetToken,
-              step: 3,
-            },
-          });
+      if (otp.length !== 6) {
+        alert(
+          'Please enter the 6-digit verification code.'
+        );
+        return;
+      }
+
+      setIsLoading(true);
+
+      try {
+
+        const endpoint =
+          isPasswordReset
+            ? `${BACKEND_URL}/api/auth/verify-reset-otp`
+            : `${BACKEND_URL}/api/auth/verify-otp`;
+
+
+        const response =
+          await fetch(
+            endpoint,
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json'
+              },
+
+              body: JSON.stringify({
+                email:
+                  email.trim().toLowerCase(),
+
+                otp:
+                  otp.trim()
+              })
+            }
+          );
+
+
+        const data =
+          await response.json();
+
+
+        if (!response.ok) {
+
+          alert(
+            `Verification failed: ${
+              data.message ||
+              data.error ||
+              'Invalid or expired code'
+            }`
+          );
 
           return;
         }
 
-        /* =====================================================
-           EXISTING LOGIN / AUTHENTICATION FLOW
-           ===================================================== */
 
-        localStorage.setItem('token', data.token);
+        // =====================================================
+        // PASSWORD RESET
+        // =====================================================
 
-        alert("Login successful!");
+        if (isPasswordReset) {
 
-        navigate('/dashboard');
+          if (!data.resetToken) {
 
-      } else {
-        alert(
-          `Verification failed: ${
-            data.message ||
-            data.error ||
-            'Invalid or expired code'
-          }`
+            alert(
+              'Verification succeeded, but no reset token was received.'
+            );
+
+            return;
+          }
+
+          navigate(
+            '/forgot-password',
+            {
+              replace: true,
+
+              state: {
+                email:
+                  email.trim().toLowerCase(),
+
+                resetToken:
+                  data.resetToken,
+
+                step: 3
+              }
+            }
+          );
+
+          return;
+        }
+
+
+        // =====================================================
+        // NORMAL AUTHENTICATION
+        // =====================================================
+
+        if (
+          !data.token ||
+          !data.user
+        ) {
+
+          alert(
+            'Authentication succeeded, but the server did not return a valid session.'
+          );
+
+          return;
+        }
+
+
+        localStorage.setItem(
+          'jwt_token',
+          data.token
         );
+
+        localStorage.setItem(
+          'user_data',
+          JSON.stringify(data.user)
+        );
+
+
+        const userRole =
+          data.user?.role;
+
+
+        // =====================================================
+        // ROLE-BASED ROUTING
+        // =====================================================
+
+        if (
+          userRole === 'admin'
+        ) {
+
+          navigate(
+            '/admin/dashboard',
+            {
+              replace: true
+            }
+          );
+
+        } else if (
+          userRole === 'instructor' ||
+          userRole === 'tutor'
+        ) {
+
+          // Tutor uses the same instructional dashboard
+          navigate(
+            '/instructor/dashboard',
+            {
+              replace: true
+            }
+          );
+
+        } else if (
+          userRole === 'student'
+        ) {
+
+          navigate(
+            '/student/dashboard',
+            {
+              replace: true
+            }
+          );
+
+        } else {
+
+          navigate(
+            '/dashboard',
+            {
+              replace: true
+            }
+          );
+        }
+
+
+      } catch (error) {
+
+        console.error(
+          'OTP verification error:',
+          error
+        );
+
+        alert(
+          'Could not connect to the server.'
+        );
+
+      } finally {
+
+        setIsLoading(false);
       }
+    };
 
-    } catch (error) {
-      console.error("OTP verification error:", error);
 
-      alert("Could not connect to the server.");
+  if (!email) {
+    return null;
+  }
 
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (!email) return null;
 
   return (
     <div
@@ -123,6 +263,7 @@ export default function OtpVerification() {
         padding: '20px'
       }}
     >
+
       <div
         style={{
           backgroundColor: '#FFFFFF',
@@ -138,9 +279,7 @@ export default function OtpVerification() {
         }}
       >
 
-        {/* =====================================================
-            ICON
-            ===================================================== */}
+        {/* ICON */}
 
         <div
           style={{
@@ -155,6 +294,7 @@ export default function OtpVerification() {
             color: '#2563EB'
           }}
         >
+
           <svg
             width="24"
             height="24"
@@ -165,6 +305,7 @@ export default function OtpVerification() {
             strokeLinecap="round"
             strokeLinejoin="round"
           >
+
             <rect
               x="3"
               y="11"
@@ -173,13 +314,17 @@ export default function OtpVerification() {
               rx="2"
               ry="2"
             />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+
+            <path
+              d="M7 11V7a5 5 0 0 1 10 0v4"
+            />
+
           </svg>
+
         </div>
 
-        {/* =====================================================
-            TITLE
-            ===================================================== */}
+
+        {/* TITLE */}
 
         <h2
           style={{
@@ -189,14 +334,15 @@ export default function OtpVerification() {
             margin: '0 0 8px 0'
           }}
         >
-          {isPasswordReset
-            ? 'Reset Password'
-            : 'Enter 2FA Code'}
+          {
+            isPasswordReset
+              ? 'Reset Password'
+              : 'Enter 2FA Code'
+          }
         </h2>
 
-        {/* =====================================================
-            DESCRIPTION
-            ===================================================== */}
+
+        {/* DESCRIPTION */}
 
         <p
           style={{
@@ -205,35 +351,39 @@ export default function OtpVerification() {
             margin: '0 0 28px 0'
           }}
         >
-          {isPasswordReset
-            ? (
-              <>
-                We sent a 6-digit password reset code to
-                <br />
-                <strong>{email}</strong>
-              </>
-            )
-            : (
-              <>
-                We sent a 6-digit code to
-                <br />
-                <strong>{email}</strong>
-              </>
-            )}
+          {
+            isPasswordReset
+              ? (
+                <>
+                  We sent a 6-digit password reset code to
+                  <br />
+                  <strong>{email}</strong>
+                </>
+              )
+              : (
+                <>
+                  We sent a 6-digit code to
+                  <br />
+                  <strong>{email}</strong>
+                </>
+              )
+          }
         </p>
 
-        {/* =====================================================
-            OTP FORM
-            ===================================================== */}
+
+        {/* OTP FORM */}
 
         <form
-          onSubmit={handleVerifyOTP}
+          onSubmit={
+            handleVerifyOTP
+          }
           style={{
             display: 'flex',
             flexDirection: 'column',
             gap: '20px'
           }}
         >
+
           <input
             type="text"
             inputMode="numeric"
@@ -249,6 +399,7 @@ export default function OtpVerification() {
             }
             maxLength="6"
             required
+            disabled={isLoading}
             style={{
               width: '100%',
               height: '46px',
@@ -262,6 +413,7 @@ export default function OtpVerification() {
             }}
           />
 
+
           <button
             type="submit"
             disabled={isLoading}
@@ -274,23 +426,29 @@ export default function OtpVerification() {
               fontWeight: '600',
               border: 'none',
               borderRadius: '10px',
-              cursor: isLoading
-                ? 'not-allowed'
-                : 'pointer',
-              opacity: isLoading ? 0.7 : 1
+              cursor:
+                isLoading
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity:
+                isLoading
+                  ? 0.7
+                  : 1
             }}
           >
-            {isLoading
-              ? 'Verifying...'
-              : isPasswordReset
-                ? 'Verify Code'
-                : 'Verify Code'}
+
+            {
+              isLoading
+                ? 'Verifying...'
+                : 'Verify Code'
+            }
+
           </button>
+
         </form>
 
-        {/* =====================================================
-            FOOTER
-            ===================================================== */}
+
+        {/* FOOTER */}
 
         <p
           style={{
@@ -300,6 +458,7 @@ export default function OtpVerification() {
             color: '#6B7280'
           }}
         >
+
           Didn't receive it or want to use a different account?{' '}
 
           <Link
@@ -312,9 +471,11 @@ export default function OtpVerification() {
           >
             Back to Login
           </Link>
+
         </p>
 
       </div>
+
     </div>
   );
 }

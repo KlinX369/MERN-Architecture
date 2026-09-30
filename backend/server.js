@@ -1,1513 +1,1824 @@
 /* =========================================================
    EDUSPHERE SERVER
-   Express + MongoDB + Passport + Social Authentication
+   Express + MongoDB + Passport OAuth + Secure Cookie Auth
    ========================================================= */
 
-require("dotenv").config();
+require('dotenv').config();
 
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const axios = require("axios");
-const cookieParser = require("cookie-parser");
-const crypto = require("crypto");
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const axios = require('axios');
+const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
+const helmet = require('helmet');
+const passport = require('passport');
+const {
+    rateLimit
+} = require('express-rate-limit');
 
-const session = require("express-session");
-const passport = require("passport");
 const GoogleStrategy =
-  require("passport-google-oauth20").Strategy;
+    require('passport-google-oauth20')
+        .Strategy;
 
-const Staff = require("./models/Staff");
-const authRoutes = require("./routes/authRoutes");
+const Staff =
+    require('./models/Staff');
 
-const app = express();
+const authRoutes =
+    require('./routes/authRoutes');
+
+const {
+    issueAuthentication,
+    protect,
+    getCookieNames,
+    clearAuthCookies,
+    clearResetCookie,
+    clearCsrfCookie,
+    revokeSessionByRefreshToken,
+    audit,
+    safeEqualString
+} = require('./middleware/authMiddleware');
+
+const app =
+    express();
 
 /* =========================================================
    ENVIRONMENT
    ========================================================= */
 
-const PORT = process.env.PORT || 5000;
+const NODE_ENV =
+    process.env.NODE_ENV ||
+    'development';
+
+const IS_PRODUCTION =
+    NODE_ENV ===
+    'production';
+
+const PORT =
+    Number(
+        process.env.PORT ||
+            5000
+    );
 
 const FRONTEND_URL =
-  process.env.FRONTEND_URL ||
-  "http://localhost:5173";
+    String(
+        process.env.FRONTEND_URL ||
+            'http://localhost:5173'
+    ).replace(
+        /\/$/,
+        ''
+    );
+
+const FRONTEND_URLS =
+    String(
+        process.env.FRONTEND_URLS ||
+            FRONTEND_URL
+    )
+        .split(',')
+        .map((url) =>
+            url
+                .trim()
+                .replace(
+                    /\/$/,
+                    ''
+                )
+        )
+        .filter(Boolean);
 
 const BACKEND_URL =
-  process.env.BACKEND_URL ||
-  `http://localhost:${PORT}`;
+    String(
+        process.env.BACKEND_URL ||
+            `http://localhost:${PORT}`
+    ).replace(
+        /\/$/,
+        ''
+    );
 
 const LINKEDIN_REDIRECT_URI =
-  process.env.LINKEDIN_REDIRECT_URI ||
-  `${BACKEND_URL}/api/auth/callback/linkedin`;
+    String(
+        process.env
+            .LINKEDIN_REDIRECT_URI ||
+            `${BACKEND_URL}/api/auth/callback/linkedin`
+    );
 
 const GITHUB_REDIRECT_URI =
-  process.env.GITHUB_REDIRECT_URI ||
-  `${BACKEND_URL}/api/auth/callback/github`;
+    String(
+        process.env
+            .GITHUB_REDIRECT_URI ||
+            `${BACKEND_URL}/api/auth/callback/github`
+    );
+
+const TIKTOK_REDIRECT_URI =
+    String(
+        process.env
+            .TIKTOK_REDIRECT_URI ||
+            `${BACKEND_URL}/auth/tiktok/callback`
+    );
+
+const GOOGLE_STATE_COOKIE =
+    IS_PRODUCTION
+        ? '__Host-edusphere_google_state'
+        : 'edusphere_google_state';
+
+const GITHUB_STATE_COOKIE =
+    IS_PRODUCTION
+        ? '__Host-edusphere_github_state'
+        : 'edusphere_github_state';
+
+const LINKEDIN_STATE_COOKIE =
+    IS_PRODUCTION
+        ? '__Host-edusphere_linkedin_state'
+        : 'edusphere_linkedin_state';
+
+const TIKTOK_STATE_COOKIE =
+    IS_PRODUCTION
+        ? '__Host-edusphere_tiktok_state'
+        : 'edusphere_tiktok_state';
+
+const STATE_COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure:
+        IS_PRODUCTION,
+    sameSite: 'lax',
+    path: '/',
+    maxAge:
+        5 * 60 * 1000
+};
+
+function assertStartupConfiguration() {
+    if (
+        !process.env.MONGO_URI
+    ) {
+        throw new Error(
+            'MONGO_URI is required.'
+        );
+    }
+
+    if (
+        !process.env.JWT_SECRET ||
+        process.env.JWT_SECRET.length <
+            32
+    ) {
+        throw new Error(
+            'JWT_SECRET must be set and at least 32 characters long.'
+        );
+    }
+
+    if (
+        IS_PRODUCTION &&
+        FRONTEND_URLS.some(
+            (url) =>
+                !url.startsWith(
+                    'https://'
+                )
+        )
+    ) {
+        throw new Error(
+            'All production FRONTEND_URLS must use HTTPS.'
+        );
+    }
+
+    if (
+        IS_PRODUCTION &&
+        !BACKEND_URL.startsWith(
+            'https://'
+        )
+    ) {
+        throw new Error(
+            'BACKEND_URL must use HTTPS in production.'
+        );
+    }
+}
+
+assertStartupConfiguration();
 
 /* =========================================================
    MIDDLEWARE
    ========================================================= */
 
-app.use(
-  cors({
-    origin: true,
-    credentials: true,
-  })
+if (IS_PRODUCTION) {
+    app.set(
+        'trust proxy',
+        1
+    );
+}
+
+app.disable(
+    'x-powered-by'
 );
 
-app.use(express.json());
-
 app.use(
-  express.urlencoded({
-    extended: true,
-  })
-);
-
-app.use(cookieParser());
-
-/* =========================================================
-   SESSION
-   ========================================================= */
-
-app.use(
-  session({
-    secret:
-      process.env.SESSION_SECRET ||
-      "a_secure_random_string_change_this",
-
-    resave: false,
-
-    saveUninitialized: false,
-
-    cookie: {
-      httpOnly: true,
-
-      secure:
-        process.env.NODE_ENV === "production",
-
-      sameSite:
-        process.env.NODE_ENV === "production"
-          ? "none"
-          : "lax",
-
-      maxAge:
-        1000 * 60 * 60 * 24 * 7,
-    },
-  })
-);
-
-/* =========================================================
-   PASSPORT
-   ========================================================= */
-
-app.use(passport.initialize());
-app.use(passport.session());
-
-/* =========================================================
-   GOOGLE OAUTH
-   ========================================================= */
-
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID:
-        process.env.GOOGLE_CLIENT_ID,
-
-      clientSecret:
-        process.env.GOOGLE_CLIENT_SECRET,
-
-      callbackURL:
-        `${BACKEND_URL}/auth/google/callback`,
-    },
-
-    async (
-      accessToken,
-      refreshToken,
-      profile,
-      done
-    ) => {
-      try {
-        const email =
-          profile.emails?.[0]?.value
-            ?.toLowerCase()
-            ?.trim();
-
-        let existingStaff =
-          await Staff.findOne({
-            googleId: profile.id,
-          });
-
-        if (!existingStaff && email) {
-          existingStaff =
-            await Staff.findOne({
-              email,
-            });
-        }
-
-        if (existingStaff) {
-          try {
-            if (
-              "googleId" in
-                existingStaff.schema.paths &&
-              !existingStaff.googleId
-            ) {
-              existingStaff.googleId =
-                profile.id;
-
-              await existingStaff.save();
+    cors({
+        origin(
+            origin,
+            callback
+        ) {
+            if (!origin) {
+                return callback(
+                    null,
+                    true
+                );
             }
-          } catch (error) {
-            console.warn(
-              "Could not save Google ID:",
-              error.message
+
+            const normalized =
+                origin.replace(
+                    /\/$/,
+                    ''
+                );
+
+            if (
+                FRONTEND_URLS.includes(
+                    normalized
+                )
+            ) {
+                return callback(
+                    null,
+                    true
+                );
+            }
+
+            return callback(
+                new Error(
+                    'CORS origin not allowed.'
+                )
             );
-          }
+        },
 
-          return done(
-            null,
-            existingStaff
-          );
+        credentials:
+            true,
+
+        methods: [
+            'GET',
+            'POST',
+            'PUT',
+            'PATCH',
+            'DELETE',
+            'OPTIONS'
+        ],
+
+        allowedHeaders: [
+            'Content-Type',
+            'Authorization',
+            'X-CSRF-Token'
+        ],
+
+        optionsSuccessStatus:
+            204
+    })
+);
+
+app.use(
+    helmet({
+        strictTransportSecurity:
+            IS_PRODUCTION
+    })
+);
+
+app.use(
+    express.json({
+        limit:
+            '1mb'
+    })
+);
+
+app.use(
+    express.urlencoded({
+        extended:
+            false,
+
+        limit:
+            '1mb'
+    })
+);
+
+app.use(
+    cookieParser()
+);
+
+app.use(
+    passport.initialize()
+);
+
+const oauthLimiter =
+    rateLimit({
+        windowMs:
+            10 * 60 * 1000,
+
+        limit:
+            20,
+
+        standardHeaders:
+            'draft-8',
+
+        legacyHeaders:
+            false,
+
+        message: {
+            message:
+                'Too many authentication requests. Please try again later.'
         }
-
-        const newStaff =
-          await new Staff({
-            googleId: profile.id,
-
-            email:
-              email || "",
-
-            name:
-              profile.displayName ||
-              email?.split("@")[0] ||
-              "User",
-
-            isVerified: true,
-          }).save();
-
-        return done(
-          null,
-          newStaff
-        );
-      } catch (error) {
-        console.error(
-          "Google Authentication Error:",
-          error
-        );
-
-        return done(
-          error,
-          null
-        );
-      }
-    }
-  )
-);
-
-/* =========================================================
-   PASSPORT SESSION SERIALIZATION
-   ========================================================= */
-
-passport.serializeUser(
-  (user, done) => {
-    done(null, user.id);
-  }
-);
-
-passport.deserializeUser(
-  async (id, done) => {
-    try {
-      const user =
-        await Staff.findById(id);
-
-      if (!user) {
-        return done(
-          null,
-          false
-        );
-      }
-
-      done(
-        null,
-        user
-      );
-    } catch (error) {
-      done(
-        error,
-        null
-      );
-    }
-  }
-);
+    });
 
 /* =========================================================
    OAUTH HELPERS
    ========================================================= */
 
-function createOAuthState() {
-  return crypto
-    .randomBytes(32)
-    .toString("hex");
-}
-
 function redirectToLogin(
-  res,
-  reason = ""
+    res,
+    reason =
+        'oauth_failed'
 ) {
-  const separator =
-    FRONTEND_URL.includes("?")
-      ? "&"
-      : "?";
+    const separator =
+        FRONTEND_URL.includes(
+            '?'
+        )
+            ? '&'
+            : '?';
 
-  const encodedReason =
-    encodeURIComponent(
-      reason || "oauth_failed"
+    const safeReason =
+        encodeURIComponent(
+            String(
+                reason
+            ).slice(
+                0,
+                100
+            )
+        );
+
+    return res.redirect(
+        `${FRONTEND_URL}/login${separator}error=${safeReason}`
+    );
+}
+
+function setOAuthStateCookie(
+    res,
+    cookieName,
+    state
+) {
+    res.cookie(
+        cookieName,
+        state,
+        STATE_COOKIE_OPTIONS
+    );
+}
+
+function clearOAuthStateCookie(
+    res,
+    cookieName
+) {
+    res.clearCookie(
+        cookieName,
+        {
+            httpOnly:
+                true,
+
+            secure:
+                IS_PRODUCTION,
+
+            sameSite:
+                'lax',
+
+            path: '/'
+        }
+    );
+}
+
+function makeOAuthState() {
+    return crypto
+        .randomBytes(32)
+        .toString('hex');
+}
+
+function validateOAuthState(
+    req,
+    res,
+    cookieName,
+    receivedState
+) {
+    const savedState =
+        req.cookies?.[
+            cookieName
+        ];
+
+    clearOAuthStateCookie(
+        res,
+        cookieName
     );
 
-  return res.redirect(
-    `${FRONTEND_URL}/login${separator}error=${encodedReason}`
-  );
+    if (
+        !savedState ||
+        !receivedState
+    ) {
+        return false;
+    }
+
+    return safeEqualString(
+        String(
+            savedState
+        ),
+        String(
+            receivedState
+        )
+    );
+}
+
+function addAuthMethod(
+    user,
+    provider
+) {
+    const methods =
+        Array.isArray(
+            user.authMethods
+        )
+            ? user.authMethods
+            : [];
+
+    if (
+        !methods.includes(
+            provider
+        )
+    ) {
+        methods.push(
+            provider
+        );
+    }
+
+    user.authMethods =
+        methods;
 }
 
 /* =========================================================
-   LINKEDIN LOGIN
+   OAUTH USER CREATION/LINKING
    ========================================================= */
 
-app.get(
-  "/auth/linkedin",
-  (req, res) => {
-    try {
-      if (
-        !process.env.LINKEDIN_CLIENT_ID ||
-        !process.env.LINKEDIN_CLIENT_SECRET ||
-        !process.env.LINKEDIN_REDIRECT_URI
-      ) {
-        console.error(
-          "LinkedIn OAuth credentials are missing."
-        );
+async function upsertOAuthUser({
+    provider,
+    providerId,
+    email,
+    emailVerified,
+    name,
+    avatar
+}) {
+    const providerField =
+        `${provider}Id`;
 
-        return redirectToLogin(
-          res,
-          "linkedin_not_configured"
-        );
-      }
+    const normalizedEmail =
+        email
+            ? email
+                  .toLowerCase()
+                  .trim()
+            : '';
 
-      const state =
-        createOAuthState();
-
-      req.session.linkedinOAuthState =
-        state;
-
-      const params =
-        new URLSearchParams({
-          response_type: "code",
-
-          client_id:
-            process.env
-              .LINKEDIN_CLIENT_ID,
-
-          redirect_uri:
-            LINKEDIN_REDIRECT_URI,
-
-          state,
-
-          scope:
-            "openid profile email",
+    let user =
+        await Staff.findOne({
+            [providerField]:
+                String(
+                    providerId
+                )
         });
 
-      return res.redirect(
-        `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`
-      );
-    } catch (error) {
-      console.error(
-        "LinkedIn Authorization Error:",
-        error
-      );
-
-      return redirectToLogin(
-        res,
-        "linkedin_authorization_failed"
-      );
+    /*
+     * Only verified OAuth emails can automatically link
+     * to an existing account.
+     */
+    if (
+        !user &&
+        normalizedEmail &&
+        emailVerified
+    ) {
+        user =
+            await Staff.findOne({
+                email:
+                    normalizedEmail
+            });
     }
-  }
-);
 
-/* =========================================================
-   LINKEDIN CALLBACK
-   ========================================================= */
-
-app.get(
-  "/api/auth/callback/linkedin",
-  async (req, res) => {
-    try {
-      const {
-        code,
-        state,
-        error,
-        error_description,
-      } = req.query;
-
-      if (error) {
-        console.error(
-          "LinkedIn returned an OAuth error:",
-          error,
-          error_description || ""
-        );
-
-        delete req.session
-          .linkedinOAuthState;
-
-        return redirectToLogin(
-          res,
-          String(error)
-        );
-      }
-
-      if (!code) {
-        return redirectToLogin(
-          res,
-          "missing_linkedin_code"
-        );
-      }
-
-      const savedState =
-        req.session.linkedinOAuthState;
-
-      if (
-        !savedState ||
-        !state ||
-        savedState !== state
-      ) {
-        console.error(
-          "LinkedIn OAuth state validation failed."
-        );
-
-        delete req.session
-          .linkedinOAuthState;
-
-        return redirectToLogin(
-          res,
-          "invalid_linkedin_state"
-        );
-      }
-
-      delete req.session
-        .linkedinOAuthState;
-
-      const tokenResponse =
-        await axios.post(
-          "https://www.linkedin.com/oauth/v2/accessToken",
-
-          new URLSearchParams({
-            grant_type:
-              "authorization_code",
-
-            code: String(code),
-
-            client_id:
-              process.env
-                .LINKEDIN_CLIENT_ID,
-
-            client_secret:
-              process.env
-                .LINKEDIN_CLIENT_SECRET,
-
-            redirect_uri:
-              LINKEDIN_REDIRECT_URI,
-          }).toString(),
-
-          {
-            headers: {
-              "Content-Type":
-                "application/x-www-form-urlencoded",
-            },
-
-            timeout: 15000,
-          }
-        );
-
-      const accessToken =
-        tokenResponse.data
-          ?.access_token;
-
-      if (!accessToken) {
-        return redirectToLogin(
-          res,
-          "linkedin_token_failed"
-        );
-      }
-
-      const profileResponse =
-        await axios.get(
-          "https://api.linkedin.com/v2/userinfo",
-          {
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`,
-
-              Accept:
-                "application/json",
-            },
-
-            timeout: 15000,
-          }
-        );
-
-      const linkedinProfile =
-        profileResponse.data || {};
-
-      const linkedinId =
-        linkedinProfile.sub;
-
-      const linkedinEmail =
-        linkedinProfile.email
-          ?.toLowerCase()
-          ?.trim();
-
-      const linkedinName =
-        linkedinProfile.name ||
-        [
-          linkedinProfile.given_name,
-          linkedinProfile.family_name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-
-      const linkedinPicture =
-        linkedinProfile.picture ||
-        "";
-
-      if (!linkedinId) {
-        return redirectToLogin(
-          res,
-          "linkedin_profile_invalid"
-        );
-      }
-
-      if (!linkedinEmail) {
-        return redirectToLogin(
-          res,
-          "linkedin_email_missing"
-        );
-      }
-
-      let existingStaff = null;
-
-      try {
-        existingStaff =
-          await Staff.findOne({
-            linkedinId,
-          });
-      } catch (error) {
-        console.warn(
-          "LinkedIn ID lookup failed; falling back to email:",
-          error.message
-        );
-      }
-
-      if (!existingStaff) {
-        existingStaff =
-          await Staff.findOne({
-            email:
-              linkedinEmail,
-          });
-      }
-
-      if (existingStaff) {
-        let changed = false;
-
+    if (user) {
         if (
-          "linkedinId" in
-            existingStaff.schema.paths &&
-          existingStaff.linkedinId !==
-            linkedinId
+            !user.isActive
         ) {
-          existingStaff.linkedinId =
-            linkedinId;
-
-          changed = true;
+            return {
+                error:
+                    'account_disabled'
+            };
         }
 
-        if (
-          linkedinPicture &&
-          "avatar" in
-            existingStaff.schema.paths &&
-          !existingStaff.avatar
-        ) {
-          existingStaff.avatar =
-            linkedinPicture;
+        user[providerField] =
+            String(
+                providerId
+            );
 
-          changed = true;
-        }
+        addAuthMethod(
+            user,
+            provider
+        );
 
-        if (
-          "isVerified" in
-            existingStaff.schema.paths &&
-          !existingStaff.isVerified
-        ) {
-          existingStaff.isVerified =
+        user.isVerified =
             true;
 
-          changed = true;
+        if (
+            name &&
+            (!user.name ||
+                user.name ===
+                    'New User')
+        ) {
+            user.name =
+                name.slice(
+                    0,
+                    120
+                );
         }
 
-        if (changed) {
-          await existingStaff.save();
+        if (
+            avatar &&
+            !user.avatar
+        ) {
+            user.avatar =
+                avatar.slice(
+                    0,
+                    2048
+                );
         }
 
-        return req.login(
-          existingStaff,
-          (loginError) => {
-            if (loginError) {
-              console.error(
-                "LinkedIn Passport session error:",
-                loginError
-              );
+        await user.save();
 
-              return redirectToLogin(
-                res,
-                "linkedin_session_failed"
-              );
-            }
-
-            return res.redirect(
-              `${FRONTEND_URL}/dashboard`
-            );
-          }
-        );
-      }
-
-      const newStaffData = {
-        email:
-          linkedinEmail,
-
-        name:
-          linkedinName ||
-          linkedinEmail.split("@")[0],
-
-        isVerified: true,
-      };
-
-      if (
-        "linkedinId" in
-        Staff.schema.paths
-      ) {
-        newStaffData.linkedinId =
-          linkedinId;
-      }
-
-      if (
-        linkedinPicture &&
-        "avatar" in
-          Staff.schema.paths
-      ) {
-        newStaffData.avatar =
-          linkedinPicture;
-      }
-
-      const newStaff =
-        await new Staff(
-          newStaffData
-        ).save();
-
-      console.log(
-        `[LinkedIn] Created new EduSphere account for ${linkedinEmail}`
-      );
-
-      return req.login(
-        newStaff,
-        (loginError) => {
-          if (loginError) {
-            console.error(
-              "LinkedIn new-user session error:",
-              loginError
-            );
-
-            return redirectToLogin(
-              res,
-              "linkedin_session_failed"
-            );
-          }
-
-          return res.redirect(
-            `${FRONTEND_URL}/dashboard`
-          );
-        }
-      );
-    } catch (error) {
-      console.error(
-        "LinkedIn Authentication Error:",
-        error
-      );
-
-      if (error.response) {
-        console.error(
-          "Status:",
-          error.response.status
-        );
-
-        console.error(
-          "LinkedIn response:",
-          error.response.data
-        );
-      }
-
-      return redirectToLogin(
-        res,
-        "linkedin_authentication_failed"
-      );
+        return {
+            user
+        };
     }
-  }
-);
 
-/* =========================================================
-   GITHUB OAUTH
-   ========================================================= */
-
-app.get(
-  "/auth/github",
-  (req, res) => {
-    try {
-      if (
-        !process.env.GITHUB_CLIENT_ID ||
-        !process.env.GITHUB_CLIENT_SECRET ||
-        !GITHUB_REDIRECT_URI
-      ) {
-        console.error(
-          "GitHub OAuth credentials are missing."
-        );
-
-        return redirectToLogin(
-          res,
-          "github_not_configured"
-        );
-      }
-
-      const state =
-        createOAuthState();
-
-      req.session.githubOAuthState =
-        state;
-
-      const params =
-        new URLSearchParams({
-          client_id:
-            process.env.GITHUB_CLIENT_ID,
-
-          redirect_uri:
-            GITHUB_REDIRECT_URI,
-
-          scope:
-            "read:user user:email",
-
-          state,
-
-          allow_signup:
-            "true",
-        });
-
-      return res.redirect(
-        `https://github.com/login/oauth/authorize?${params.toString()}`
-      );
-    } catch (error) {
-      console.error(
-        "GitHub Authorization Error:",
-        error
-      );
-
-      return redirectToLogin(
-        res,
-        "github_authorization_failed"
-      );
+    /*
+     * A provider with an unverified email must not
+     * auto-link to an existing local account.
+     */
+    if (
+        normalizedEmail &&
+        !emailVerified
+    ) {
+        return {
+            error:
+                'oauth_email_unverified'
+        };
     }
-  }
-);
 
-/* =========================================================
-   GITHUB CALLBACK
-   ========================================================= */
-
-app.get(
-  "/api/auth/callback/github",
-  async (req, res) => {
-    try {
-      const {
-        code,
-        state,
-        error,
-        error_description,
-      } = req.query;
-
-      if (error) {
-        console.error(
-          "GitHub returned an OAuth error:",
-          error,
-          error_description || ""
-        );
-
-        delete req.session
-          .githubOAuthState;
-
-        return redirectToLogin(
-          res,
-          String(error)
-        );
-      }
-
-      if (!code) {
-        return redirectToLogin(
-          res,
-          "missing_github_code"
-        );
-      }
-
-      const savedState =
-        req.session.githubOAuthState;
-
-      if (
-        !savedState ||
-        !state ||
-        savedState !== state
-      ) {
-        console.error(
-          "GitHub OAuth state validation failed."
-        );
-
-        delete req.session
-          .githubOAuthState;
-
-        return redirectToLogin(
-          res,
-          "invalid_github_state"
-        );
-      }
-
-      delete req.session
-        .githubOAuthState;
-
-      /* =====================================================
-         EXCHANGE CODE FOR ACCESS TOKEN
-         ===================================================== */
-
-      const tokenResponse =
-        await axios.post(
-          "https://github.com/login/oauth/access_token",
-
-          {
-            client_id:
-              process.env.GITHUB_CLIENT_ID,
-
-            client_secret:
-              process.env.GITHUB_CLIENT_SECRET,
-
-            code: String(code),
-
-            redirect_uri:
-              GITHUB_REDIRECT_URI,
-          },
-
-          {
-            headers: {
-              Accept:
-                "application/json",
-
-              "Content-Type":
-                "application/json",
-
-              "X-GitHub-Api-Version":
-                "2022-11-28",
-            },
-
-            timeout: 15000,
-          }
-        );
-
-      const accessToken =
-        tokenResponse.data
-          ?.access_token;
-
-      if (!accessToken) {
-        console.error(
-          "GitHub did not return an access token:",
-          tokenResponse.data
-        );
-
-        return redirectToLogin(
-          res,
-          "github_token_failed"
-        );
-      }
-
-      const githubHeaders = {
-        Authorization:
-          `Bearer ${accessToken}`,
-
-        Accept:
-          "application/vnd.github+json",
-
-        "X-GitHub-Api-Version":
-          "2022-11-28",
-      };
-
-      /* =====================================================
-         GET GITHUB PROFILE
-         ===================================================== */
-
-      const profileResponse =
-        await axios.get(
-          "https://api.github.com/user",
-          {
-            headers:
-              githubHeaders,
-
-            timeout: 15000,
-          }
-        );
-
-      const githubProfile =
-        profileResponse.data || {};
-
-      const githubId =
-        githubProfile.id
-          ? String(
-              githubProfile.id
-            )
-          : "";
-
-      if (!githubId) {
-        return redirectToLogin(
-          res,
-          "github_profile_invalid"
-        );
-      }
-
-      /* =====================================================
-         GET GITHUB EMAILS
-         ===================================================== */
-
-      const emailResponse =
-        await axios.get(
-          "https://api.github.com/user/emails",
-          {
-            headers:
-              githubHeaders,
-
-            timeout: 15000,
-          }
-        );
-
-      const emails =
-        Array.isArray(
-          emailResponse.data
-        )
-          ? emailResponse.data
-          : [];
-
-      const verifiedEmail =
-        emails.find(
-          (item) =>
-            item.primary &&
-            item.verified &&
-            item.email
-        )?.email ||
-
-        emails.find(
-          (item) =>
-            item.verified &&
-            item.email
-        )?.email ||
-
-        "";
-
-      const githubEmail =
-        verifiedEmail
-          .toLowerCase()
-          .trim();
-
-      if (!githubEmail) {
-        console.error(
-          "GitHub did not return a verified email address."
-        );
-
-        return redirectToLogin(
-          res,
-          "github_email_missing"
-        );
-      }
-
-      const githubName =
-        githubProfile.name
-          ?.trim() ||
-
-        githubProfile.login
-          ?.trim() ||
-
-        githubEmail.split("@")[0] ||
-
-        "GitHub User";
-
-      /* =====================================================
-         FIND EXISTING ACCOUNT
-         ===================================================== */
-
-      let existingStaff =
-        await Staff.findOne({
-          githubId,
-        });
-
-      if (!existingStaff) {
-        existingStaff =
-          await Staff.findOne({
+    const newUser =
+        new Staff({
             email:
-              githubEmail,
-          });
-      }
+                normalizedEmail ||
+                undefined,
 
-      /* =====================================================
-         UPDATE EXISTING ACCOUNT
-         ===================================================== */
+            password:
+                null,
 
-      if (existingStaff) {
-        let changed = false;
+            [providerField]:
+                String(
+                    providerId
+                ),
 
-        if (
-          "githubId" in
-            existingStaff.schema.paths &&
-          existingStaff.githubId !==
-            githubId
-        ) {
-          existingStaff.githubId =
-            githubId;
-
-          changed = true;
-        }
-
-        if (
-          "isVerified" in
-            existingStaff.schema.paths &&
-          !existingStaff.isVerified
-        ) {
-          existingStaff.isVerified =
-            true;
-
-          changed = true;
-        }
-
-        if (
-          "name" in
-            existingStaff.schema.paths &&
-          !existingStaff.name
-        ) {
-          existingStaff.name =
-            githubName;
-
-          changed = true;
-        }
-
-        if (
-          githubProfile.avatar_url &&
-          "avatar" in
-            existingStaff.schema.paths &&
-          !existingStaff.avatar
-        ) {
-          existingStaff.avatar =
-            githubProfile.avatar_url;
-
-          changed = true;
-        }
-
-        if (changed) {
-          await existingStaff.save();
-        }
-
-        return req.login(
-          existingStaff,
-          (loginError) => {
-            if (loginError) {
-              console.error(
-                "GitHub Passport session error:",
-                loginError
-              );
-
-              return redirectToLogin(
-                res,
-                "github_session_failed"
-              );
-            }
-
-            return res.redirect(
-              `${FRONTEND_URL}/dashboard`
-            );
-          }
-        );
-      }
-
-      /* =====================================================
-         CREATE NEW GITHUB ACCOUNT
-         ===================================================== */
-
-      const newStaffData = {
-        githubId,
-
-        email:
-          githubEmail,
-
-        name:
-          githubName,
-
-        isVerified: true,
-      };
-
-      if (
-        githubProfile.avatar_url &&
-        "avatar" in
-          Staff.schema.paths
-      ) {
-        newStaffData.avatar =
-          githubProfile.avatar_url;
-      }
-
-      const newStaff =
-        await new Staff(
-          newStaffData
-        ).save();
-
-      console.log(
-        `[GitHub] Created new EduSphere account for ${githubEmail}`
-      );
-
-      return req.login(
-        newStaff,
-        (loginError) => {
-          if (loginError) {
-            console.error(
-              "GitHub new-user session error:",
-              loginError
-            );
-
-            return redirectToLogin(
-              res,
-              "github_session_failed"
-            );
-          }
-
-          return res.redirect(
-            `${FRONTEND_URL}/dashboard`
-          );
-        }
-      );
-    } catch (error) {
-      console.error(
-        "GitHub Authentication Error:",
-        error
-      );
-
-      if (error.response) {
-        console.error(
-          "GitHub status:",
-          error.response.status
-        );
-
-        console.error(
-          "GitHub response:",
-          error.response.data
-        );
-      }
-
-      return redirectToLogin(
-        res,
-        "github_authentication_failed"
-      );
-    }
-  }
-);
-
-/* =========================================================
-   TIKTOK OAUTH
-   ========================================================= */
-
-app.get(
-  "/auth/tiktok",
-  (req, res) => {
-    const csrfState =
-      crypto
-        .randomBytes(16)
-        .toString("hex");
-
-    res.cookie(
-      "csrfState",
-      csrfState,
-      {
-        maxAge: 60000,
-
-        httpOnly: true,
-
-        sameSite: "lax",
-
-        secure:
-          process.env.NODE_ENV ===
-          "production",
-      }
-    );
-
-    const params =
-      new URLSearchParams({
-        client_key:
-          process.env
-            .TIKTOK_CLIENT_KEY,
-
-        scope:
-          "user.info.basic",
-
-        response_type:
-          "code",
-
-        redirect_uri:
-          `${BACKEND_URL}/auth/tiktok/callback`,
-
-        state:
-          csrfState,
-      });
-
-    res.redirect(
-      `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`
-    );
-  }
-);
-
-/* =========================================================
-   TIKTOK CALLBACK
-   ========================================================= */
-
-app.get(
-  "/auth/tiktok/callback",
-  async (req, res) => {
-    const {
-      code,
-      state,
-    } = req.query;
-
-    try {
-      const savedState =
-        req.cookies.csrfState;
-
-      if (
-        !state ||
-        !savedState ||
-        state !== savedState
-      ) {
-        console.error(
-          "TikTok OAuth state validation failed."
-        );
-
-        return res.redirect(
-          `${FRONTEND_URL}/login?error=tiktok_state`
-        );
-      }
-
-      res.clearCookie(
-        "csrfState"
-      );
-
-      if (!code) {
-        return res.redirect(
-          `${FRONTEND_URL}/login?error=tiktok_code`
-        );
-      }
-
-      const tokenResponse =
-        await axios.post(
-          "https://open.tiktokapis.com/v2/oauth/token/",
-
-          new URLSearchParams({
-            client_key:
-              process.env
-                .TIKTOK_CLIENT_KEY,
-
-            client_secret:
-              process.env
-                .TIKTOK_CLIENT_SECRET,
-
-            code:
-              String(code),
-
-            grant_type:
-              "authorization_code",
-
-            redirect_uri:
-              `${BACKEND_URL}/auth/tiktok/callback`,
-          }).toString(),
-
-          {
-            headers: {
-              "Content-Type":
-                "application/x-www-form-urlencoded",
-            },
-          }
-        );
-
-      const accessToken =
-        tokenResponse.data
-          ?.access_token;
-
-      if (!accessToken) {
-        throw new Error(
-          "TikTok access token missing"
-        );
-      }
-
-      const userResponse =
-        await axios.get(
-          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
-          {
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`,
-            },
-          }
-        );
-
-      const tiktokUser =
-        userResponse.data
-          ?.data
-          ?.user;
-
-      if (!tiktokUser?.open_id) {
-        throw new Error(
-          "TikTok profile missing open_id"
-        );
-      }
-
-      let existingStaff =
-        await Staff.findOne({
-          tiktokId:
-            tiktokUser.open_id,
-        });
-
-      if (!existingStaff) {
-        existingStaff =
-          await new Staff({
-            tiktokId:
-              tiktokUser.open_id,
+            authMethods:
+                [provider],
 
             name:
-              tiktokUser.display_name ||
-              "TikTok User",
+                name ||
+                `${provider} User`,
 
-            isVerified: true,
-          }).save();
-      }
+            avatar:
+                avatar || '',
 
-      req.login(
-        existingStaff,
-        (err) => {
-          if (err) {
-            console.error(
-              "TikTok Passport Login Error:",
-              err
-            );
+            role:
+                'student',
 
-            return res.redirect(
-              `${FRONTEND_URL}/login?error=tiktok_session`
-            );
-          }
+            isVerified:
+                true,
 
-          res.redirect(
-            `${FRONTEND_URL}/dashboard`
-          );
-        }
-      );
+            isActive:
+                true
+        });
+
+    try {
+        await newUser.save();
+
+        return {
+            user:
+                newUser
+        };
     } catch (error) {
-      console.error(
-        "TikTok Authentication Error:",
-        error
-      );
+        if (
+            error?.code ===
+            11000
+        ) {
+            const existing =
+                await Staff.findOne({
+                    $or: [
+                        {
+                            [providerField]:
+                                String(
+                                    providerId
+                                )
+                        },
 
-      res.redirect(
-        `${FRONTEND_URL}/login?error=tiktok_authentication`
-      );
+                        ...(normalizedEmail
+                            ? [
+                                  {
+                                      email:
+                                          normalizedEmail
+                                  }
+                              ]
+                            : [])
+                    ]
+                });
+
+            if (
+                existing
+            ) {
+                if (
+                    !existing.isActive
+                ) {
+                    return {
+                        error:
+                            'account_disabled'
+                    };
+                }
+
+                return {
+                    user:
+                        existing
+                };
+            }
+        }
+
+        throw error;
     }
-  }
+}
+
+async function completeOAuthLogin(
+    req,
+    res,
+    user,
+    provider
+) {
+    if (
+        !user ||
+        !user.isActive
+    ) {
+        return redirectToLogin(
+            res,
+            'account_disabled'
+        );
+    }
+
+    try {
+        const auth =
+            await issueAuthentication(
+                res,
+                user,
+                req
+            );
+
+        await audit(
+            req,
+            'OAUTH_LOGIN_SUCCESS',
+            {
+                userId:
+                    user._id,
+
+                email:
+                    user.email,
+
+                metadata: {
+                    provider,
+
+                    sessionId:
+                        auth.sessionId
+                }
+            }
+        );
+
+        return res.redirect(
+            `${FRONTEND_URL}/dashboard`
+        );
+    } catch (error) {
+        console.error(
+            `[${provider.toUpperCase()}] authentication failed:`,
+            error.message
+        );
+
+        return redirectToLogin(
+            res,
+            `${provider}_authentication_failed`
+        );
+    }
+}
+
+/* =========================================================
+   GOOGLE
+   ========================================================= */
+
+if (
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET
+) {
+    passport.use(
+        new GoogleStrategy(
+            {
+                clientID:
+                    process.env
+                        .GOOGLE_CLIENT_ID,
+
+                clientSecret:
+                    process.env
+                        .GOOGLE_CLIENT_SECRET,
+
+                callbackURL:
+                    `${BACKEND_URL}/auth/google/callback`
+            },
+
+            async (
+                accessToken,
+                refreshToken,
+                profile,
+                done
+            ) => {
+                try {
+                    const primaryEmail =
+                        profile
+                            .emails?.[0];
+
+                    const email =
+                        primaryEmail?.value
+                            ?.toLowerCase()
+                            ?.trim() ||
+                        '';
+
+                    const emailVerified =
+                        Boolean(
+                            primaryEmail?.verified
+                        );
+
+                    if (
+                        !email ||
+                        !emailVerified
+                    ) {
+                        return done(
+                            null,
+                            false,
+                            {
+                                message:
+                                    'google_email_unverified'
+                            }
+                        );
+                    }
+
+                    const result =
+                        await upsertOAuthUser(
+                            {
+                                provider:
+                                    'google',
+
+                                providerId:
+                                    profile.id,
+
+                                email,
+
+                                emailVerified,
+
+                                name:
+                                    profile.displayName ||
+                                    email.split(
+                                        '@'
+                                    )[0],
+
+                                avatar:
+                                    profile
+                                        .photos?.[0]
+                                        ?.value ||
+                                    ''
+                            }
+                        );
+
+                    if (
+                        result.error
+                    ) {
+                        return done(
+                            null,
+                            false,
+                            {
+                                message:
+                                    result.error
+                            }
+                        );
+                    }
+
+                    return done(
+                        null,
+                        result.user
+                    );
+                } catch (error) {
+                    return done(
+                        error,
+                        null
+                    );
+                }
+            }
+        )
+    );
+}
+
+app.get(
+    '/auth/google',
+    oauthLimiter,
+    (req, res, next) => {
+        if (
+            !process.env
+                .GOOGLE_CLIENT_ID ||
+            !process.env
+                .GOOGLE_CLIENT_SECRET
+        ) {
+            return redirectToLogin(
+                res,
+                'google_not_configured'
+            );
+        }
+
+        const state =
+            makeOAuthState();
+
+        setOAuthStateCookie(
+            res,
+            GOOGLE_STATE_COOKIE,
+            state
+        );
+
+        return passport.authenticate(
+            'google',
+            {
+                scope: [
+                    'profile',
+                    'email'
+                ],
+
+                session:
+                    false,
+
+                state
+            }
+        )(
+            req,
+            res,
+            next
+        );
+    }
+);
+
+app.get(
+    '/auth/google/callback',
+    (req, res, next) => {
+        const valid =
+            validateOAuthState(
+                req,
+                res,
+                GOOGLE_STATE_COOKIE,
+                req.query.state
+            );
+
+        if (!valid) {
+            return redirectToLogin(
+                res,
+                'invalid_google_state'
+            );
+        }
+
+        return passport.authenticate(
+            'google',
+            {
+                session:
+                    false
+            },
+            async (
+                error,
+                user,
+                info
+            ) => {
+                if (error) {
+                    console.error(
+                        '[GOOGLE]',
+                        error.message
+                    );
+
+                    return redirectToLogin(
+                        res,
+                        'google_authentication_failed'
+                    );
+                }
+
+                if (!user) {
+                    return redirectToLogin(
+                        res,
+                        info?.message ||
+                            'google_authentication_failed'
+                    );
+                }
+
+                return completeOAuthLogin(
+                    req,
+                    res,
+                    user,
+                    'google'
+                );
+            }
+        )(
+            req,
+            res,
+            next
+        );
+    }
 );
 
 /* =========================================================
-   EXISTING AUTH ROUTES
+   GITHUB
+   ========================================================= */
+
+app.get(
+    '/auth/github',
+    oauthLimiter,
+    (req, res) => {
+        if (
+            !process.env
+                .GITHUB_CLIENT_ID ||
+            !process.env
+                .GITHUB_CLIENT_SECRET
+        ) {
+            return redirectToLogin(
+                res,
+                'github_not_configured'
+            );
+        }
+
+        const state =
+            makeOAuthState();
+
+        setOAuthStateCookie(
+            res,
+            GITHUB_STATE_COOKIE,
+            state
+        );
+
+        const params =
+            new URLSearchParams({
+                client_id:
+                    process.env
+                        .GITHUB_CLIENT_ID,
+
+                redirect_uri:
+                    GITHUB_REDIRECT_URI,
+
+                scope:
+                    'read:user user:email',
+
+                state,
+
+                allow_signup:
+                    'true'
+            });
+
+        return res.redirect(
+            `https://github.com/login/oauth/authorize?${params.toString()}`
+        );
+    }
+);
+
+app.get(
+    '/api/auth/callback/github',
+    async (req, res) => {
+        try {
+            const {
+                code,
+                state,
+                error
+            } = req.query;
+
+            if (
+                !validateOAuthState(
+                    req,
+                    res,
+                    GITHUB_STATE_COOKIE,
+                    state
+                )
+            ) {
+                return redirectToLogin(
+                    res,
+                    'invalid_github_state'
+                );
+            }
+
+            if (error) {
+                return redirectToLogin(
+                    res,
+                    'github_provider_error'
+                );
+            }
+
+            if (!code) {
+                return redirectToLogin(
+                    res,
+                    'missing_github_code'
+                );
+            }
+
+            const tokenResponse =
+                await axios.post(
+                    'https://github.com/login/oauth/access_token',
+
+                    {
+                        client_id:
+                            process.env
+                                .GITHUB_CLIENT_ID,
+
+                        client_secret:
+                            process.env
+                                .GITHUB_CLIENT_SECRET,
+
+                        code:
+                            String(
+                                code
+                            ),
+
+                        redirect_uri:
+                            GITHUB_REDIRECT_URI
+                    },
+
+                    {
+                        headers: {
+                            Accept:
+                                'application/json',
+
+                            'Content-Type':
+                                'application/json',
+
+                            'X-GitHub-Api-Version':
+                                '2022-11-28'
+                        },
+
+                        timeout:
+                            15000
+                    }
+                );
+
+            const accessToken =
+                tokenResponse.data
+                    ?.access_token;
+
+            if (!accessToken) {
+                return redirectToLogin(
+                    res,
+                    'github_token_failed'
+                );
+            }
+
+            const headers = {
+                Authorization:
+                    `Bearer ${accessToken}`,
+
+                Accept:
+                    'application/vnd.github+json',
+
+                'X-GitHub-Api-Version':
+                    '2022-11-28'
+            };
+
+            const [
+                profileResponse,
+                emailResponse
+            ] =
+                await Promise.all([
+                    axios.get(
+                        'https://api.github.com/user',
+                        {
+                            headers,
+                            timeout:
+                                15000
+                        }
+                    ),
+
+                    axios.get(
+                        'https://api.github.com/user/emails',
+                        {
+                            headers,
+                            timeout:
+                                15000
+                        }
+                    )
+                ]);
+
+            const profile =
+                profileResponse
+                    .data || {};
+
+            const emails =
+                Array.isArray(
+                    emailResponse
+                        .data
+                )
+                    ? emailResponse
+                          .data
+                    : [];
+
+            const verifiedEmail =
+                emails.find(
+                    (item) =>
+                        item.primary &&
+                        item.verified &&
+                        item.email
+                ) ||
+                emails.find(
+                    (item) =>
+                        item.verified &&
+                        item.email
+                );
+
+            const email =
+                verifiedEmail
+                    ?.email
+                    ?.toLowerCase()
+                    ?.trim() || '';
+
+            if (
+                !profile.id ||
+                !email
+            ) {
+                return redirectToLogin(
+                    res,
+                    'github_email_unverified'
+                );
+            }
+
+            const result =
+                await upsertOAuthUser(
+                    {
+                        provider:
+                            'github',
+
+                        providerId:
+                            profile.id,
+
+                        email,
+
+                        emailVerified:
+                            true,
+
+                        name:
+                            profile.name
+                                ?.trim() ||
+                            profile.login
+                                ?.trim() ||
+                            email.split(
+                                '@'
+                            )[0],
+
+                        avatar:
+                            profile.avatar_url ||
+                            ''
+                    }
+                );
+
+            if (
+                result.error
+            ) {
+                return redirectToLogin(
+                    res,
+                    result.error
+                );
+            }
+
+            return completeOAuthLogin(
+                req,
+                res,
+                result.user,
+                'github'
+            );
+        } catch (error) {
+            console.error(
+                '[GITHUB]',
+                error.message
+            );
+
+            return redirectToLogin(
+                res,
+                'github_authentication_failed'
+            );
+        }
+    }
+);
+
+/* =========================================================
+   LINKEDIN
+   ========================================================= */
+
+app.get(
+    '/auth/linkedin',
+    oauthLimiter,
+    (req, res) => {
+        if (
+            !process.env
+                .LINKEDIN_CLIENT_ID ||
+            !process.env
+                .LINKEDIN_CLIENT_SECRET
+        ) {
+            return redirectToLogin(
+                res,
+                'linkedin_not_configured'
+            );
+        }
+
+        const state =
+            makeOAuthState();
+
+        setOAuthStateCookie(
+            res,
+            LINKEDIN_STATE_COOKIE,
+            state
+        );
+
+        const params =
+            new URLSearchParams({
+                response_type:
+                    'code',
+
+                client_id:
+                    process.env
+                        .LINKEDIN_CLIENT_ID,
+
+                redirect_uri:
+                    LINKEDIN_REDIRECT_URI,
+
+                state,
+
+                scope:
+                    'openid profile email'
+            });
+
+        return res.redirect(
+            `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`
+        );
+    }
+);
+
+app.get(
+    '/api/auth/callback/linkedin',
+    async (req, res) => {
+        try {
+            const {
+                code,
+                state,
+                error,
+                error_description
+            } = req.query;
+
+            if (
+                !validateOAuthState(
+                    req,
+                    res,
+                    LINKEDIN_STATE_COOKIE,
+                    state
+                )
+            ) {
+                return redirectToLogin(
+                    res,
+                    'invalid_linkedin_state'
+                );
+            }
+
+            if (error) {
+                console.error(
+                    '[LINKEDIN]',
+                    error,
+                    error_description ||
+                        ''
+                );
+
+                return redirectToLogin(
+                    res,
+                    'linkedin_provider_error'
+                );
+            }
+
+            if (!code) {
+                return redirectToLogin(
+                    res,
+                    'missing_linkedin_code'
+                );
+            }
+
+            const tokenResponse =
+                await axios.post(
+                    'https://www.linkedin.com/oauth/v2/accessToken',
+
+                    new URLSearchParams({
+                        grant_type:
+                            'authorization_code',
+
+                        code:
+                            String(
+                                code
+                            ),
+
+                        client_id:
+                            process.env
+                                .LINKEDIN_CLIENT_ID,
+
+                        client_secret:
+                            process.env
+                                .LINKEDIN_CLIENT_SECRET,
+
+                        redirect_uri:
+                            LINKEDIN_REDIRECT_URI
+                    }).toString(),
+
+                    {
+                        headers: {
+                            'Content-Type':
+                                'application/x-www-form-urlencoded'
+                        },
+
+                        timeout:
+                            15000
+                    }
+                );
+
+            const accessToken =
+                tokenResponse.data
+                    ?.access_token;
+
+            if (!accessToken) {
+                return redirectToLogin(
+                    res,
+                    'linkedin_token_failed'
+                );
+            }
+
+            const profileResponse =
+                await axios.get(
+                    'https://api.linkedin.com/v2/userinfo',
+                    {
+                        headers: {
+                            Authorization:
+                                `Bearer ${accessToken}`,
+
+                            Accept:
+                                'application/json'
+                        },
+
+                        timeout:
+                            15000
+                    }
+                );
+
+            const profile =
+                profileResponse
+                    .data || {};
+
+            const email =
+                profile.email
+                    ?.toLowerCase()
+                    ?.trim() || '';
+
+            if (
+                !profile.sub ||
+                !email ||
+                profile.email_verified !==
+                    true
+            ) {
+                return redirectToLogin(
+                    res,
+                    'linkedin_email_unverified'
+                );
+            }
+
+            const result =
+                await upsertOAuthUser(
+                    {
+                        provider:
+                            'linkedin',
+
+                        providerId:
+                            profile.sub,
+
+                        email,
+
+                        emailVerified:
+                            true,
+
+                        name:
+                            profile.name
+                                ?.trim() ||
+                            `${
+                                profile.given_name ||
+                                ''
+                            } ${
+                                profile.family_name ||
+                                ''
+                            }`.trim() ||
+                            email.split(
+                                '@'
+                            )[0],
+
+                        avatar:
+                            profile.picture ||
+                            ''
+                    }
+                );
+
+            if (
+                result.error
+            ) {
+                return redirectToLogin(
+                    res,
+                    result.error
+                );
+            }
+
+            return completeOAuthLogin(
+                req,
+                res,
+                result.user,
+                'linkedin'
+            );
+        } catch (error) {
+            console.error(
+                '[LINKEDIN]',
+                error.message
+            );
+
+            return redirectToLogin(
+                res,
+                'linkedin_authentication_failed'
+            );
+        }
+    }
+);
+
+/* =========================================================
+   TIKTOK
+   ========================================================= */
+
+app.get(
+    '/auth/tiktok',
+    oauthLimiter,
+    (req, res) => {
+        if (
+            !process.env
+                .TIKTOK_CLIENT_KEY ||
+            !process.env
+                .TIKTOK_CLIENT_SECRET
+        ) {
+            return redirectToLogin(
+                res,
+                'tiktok_not_configured'
+            );
+        }
+
+        const state =
+            makeOAuthState();
+
+        setOAuthStateCookie(
+            res,
+            TIKTOK_STATE_COOKIE,
+            state
+        );
+
+        const params =
+            new URLSearchParams({
+                client_key:
+                    process.env
+                        .TIKTOK_CLIENT_KEY,
+
+                scope:
+                    'user.info.basic',
+
+                response_type:
+                    'code',
+
+                redirect_uri:
+                    TIKTOK_REDIRECT_URI,
+
+                state
+            });
+
+        return res.redirect(
+            `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`
+        );
+    }
+);
+
+app.get(
+    '/auth/tiktok/callback',
+    async (req, res) => {
+        try {
+            const {
+                code,
+                state,
+                error
+            } = req.query;
+
+            if (
+                !validateOAuthState(
+                    req,
+                    res,
+                    TIKTOK_STATE_COOKIE,
+                    state
+                )
+            ) {
+                return redirectToLogin(
+                    res,
+                    'invalid_tiktok_state'
+                );
+            }
+
+            if (error) {
+                return redirectToLogin(
+                    res,
+                    'tiktok_provider_error'
+                );
+            }
+
+            if (!code) {
+                return redirectToLogin(
+                    res,
+                    'missing_tiktok_code'
+                );
+            }
+
+            const tokenResponse =
+                await axios.post(
+                    'https://open.tiktokapis.com/v2/oauth/token/',
+
+                    new URLSearchParams({
+                        client_key:
+                            process.env
+                                .TIKTOK_CLIENT_KEY,
+
+                        client_secret:
+                            process.env
+                                .TIKTOK_CLIENT_SECRET,
+
+                        code:
+                            String(
+                                code
+                            ),
+
+                        grant_type:
+                            'authorization_code',
+
+                        redirect_uri:
+                            TIKTOK_REDIRECT_URI
+                    }).toString(),
+
+                    {
+                        headers: {
+                            'Content-Type':
+                                'application/x-www-form-urlencoded'
+                        },
+
+                        timeout:
+                            15000
+                    }
+                );
+
+            const accessToken =
+                tokenResponse.data
+                    ?.access_token;
+
+            if (!accessToken) {
+                return redirectToLogin(
+                    res,
+                    'tiktok_token_failed'
+                );
+            }
+
+            const userResponse =
+                await axios.get(
+                    'https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name',
+                    {
+                        headers: {
+                            Authorization:
+                                `Bearer ${accessToken}`
+                        },
+
+                        timeout:
+                            15000
+                    }
+                );
+
+            const tiktokUser =
+                userResponse
+                    .data
+                    ?.data
+                    ?.user;
+
+            if (
+                !tiktokUser?.open_id
+            ) {
+                return redirectToLogin(
+                    res,
+                    'tiktok_profile_invalid'
+                );
+            }
+
+            const result =
+                await upsertOAuthUser(
+                    {
+                        provider:
+                            'tiktok',
+
+                        providerId:
+                            tiktokUser.open_id,
+
+                        email:
+                            '',
+
+                        emailVerified:
+                            false,
+
+                        name:
+                            tiktokUser.display_name ||
+                            'TikTok User',
+
+                        avatar:
+                            tiktokUser.avatar_url ||
+                            ''
+                    }
+                );
+
+            if (
+                result.error
+            ) {
+                return redirectToLogin(
+                    res,
+                    result.error
+                );
+            }
+
+            return completeOAuthLogin(
+                req,
+                res,
+                result.user,
+                'tiktok'
+            );
+        } catch (error) {
+            console.error(
+                '[TIKTOK]',
+                error.message
+            );
+
+            return redirectToLogin(
+                res,
+                'tiktok_authentication_failed'
+            );
+        }
+    }
+);
+
+/* =========================================================
+   AUTH API
    ========================================================= */
 
 app.use(
-  "/api/auth",
-  authRoutes
+    '/api/auth',
+    authRoutes
 );
 
 /* =========================================================
-   GOOGLE ROUTES
+   CURRENT USER COMPATIBILITY ENDPOINT
    ========================================================= */
 
 app.get(
-  "/auth/google",
-  passport.authenticate(
-    "google",
-    {
-      scope: [
-        "profile",
-        "email",
-      ],
+    '/auth/me',
+    protect,
+    (req, res) => {
+        const user =
+            req.user;
+
+        return res
+            .status(200)
+            .json({
+                authenticated:
+                    true,
+
+                user: {
+                    id: String(
+                        user._id
+                    ),
+
+                    email:
+                        user.email ||
+                        '',
+
+                    name:
+                        user.name ||
+                        user.email
+                            ?.split(
+                                '@'
+                            )[0] ||
+                        'User',
+
+                    username:
+                        user.name ||
+                        user.email
+                            ?.split(
+                                '@'
+                            )[0] ||
+                        'user',
+
+                    avatar:
+                        user.avatar ||
+                        '',
+
+                    role:
+                        user.role,
+
+                    isVerified:
+                        Boolean(
+                            user.isVerified
+                        ),
+
+                    department:
+                        user.department ||
+                        'Unassigned'
+                }
+            });
     }
-  )
-);
-
-app.get(
-  "/auth/google/callback",
-
-  passport.authenticate(
-    "google",
-    {
-      failureRedirect:
-        `${FRONTEND_URL}/login`,
-    }
-  ),
-
-  (req, res) => {
-    res.redirect(
-      `${FRONTEND_URL}/dashboard`
-    );
-  }
-);
-
-/* =========================================================
-   CURRENT USER SESSION CHECK
-   ========================================================= */
-
-app.get(
-  "/auth/me",
-  (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({
-        authenticated: false,
-        user: null,
-      });
-    }
-
-    const user =
-      req.user;
-
-    return res.json({
-      authenticated: true,
-
-      user: {
-        id:
-          user._id,
-
-        email:
-          user.email || "",
-
-        name:
-          user.name ||
-          user.username ||
-          user.email?.split("@")[0] ||
-          "User",
-
-        username:
-          user.username ||
-          user.name ||
-          user.email?.split("@")[0] ||
-          "user",
-
-        avatar:
-          user.avatar ||
-          user.profilePicture ||
-          user.photoURL ||
-          "",
-
-        isVerified:
-          Boolean(
-            user.isVerified
-          ),
-      },
-    });
-  }
 );
 
 /* =========================================================
-   LOGOUT
+   LOGOUT COMPATIBILITY ENDPOINT
    ========================================================= */
 
 app.get(
-  "/auth/logout",
-  (req, res) => {
-    req.logout(
-      (logoutError) => {
-        if (logoutError) {
-          console.error(
-            "Logout Error:",
-            logoutError
-          );
-        }
+    '/auth/logout',
+    async (req, res) => {
+        try {
+            const refreshToken =
+                req.cookies?.[
+                    getCookieNames()
+                        .refreshCookieName
+                ];
 
-        req.session.destroy(
-          (sessionError) => {
-            if (sessionError) {
-              console.error(
-                "Session Destroy Error:",
-                sessionError
-              );
+            if (refreshToken) {
+                await revokeSessionByRefreshToken(
+                    refreshToken
+                );
             }
 
-            res.clearCookie(
-              "connect.sid"
+            clearAuthCookies(
+                res
+            );
+
+            clearResetCookie(
+                res
+            );
+
+            clearCsrfCookie(
+                res
             );
 
             return res.redirect(
-              `${FRONTEND_URL}/login`
+                `${FRONTEND_URL}/login`
             );
-          }
-        );
-      }
-    );
-  }
+        } catch (error) {
+            clearAuthCookies(
+                res
+            );
+
+            clearResetCookie(
+                res
+            );
+
+            clearCsrfCookie(
+                res
+            );
+
+            return res.redirect(
+                `${FRONTEND_URL}/login`
+            );
+        }
+    }
 );
 
 /* =========================================================
-   DATABASE CONNECTION
-   ========================================================= */
-
-const connectDB =
-  async () => {
-    try {
-      const conn =
-        await mongoose.connect(
-          process.env.MONGO_URI
-        );
-
-      console.log(
-        `[Database] MongoDB Connected successfully on host: ${conn.connection.host}`
-      );
-    } catch (error) {
-      console.error(
-        `[Database] Connection Error: ${error.message}`
-      );
-
-      process.exit(1);
-    }
-  };
-
-connectDB();
-
-/* =========================================================
-   HEALTH CHECK
+   HEALTH
    ========================================================= */
 
 app.get(
-  "/",
-  (req, res) => {
-    res.status(200).json({
-      message:
-        "EduSphere API is running successfully.",
+    '/',
+    (req, res) => {
+        res.status(200).json({
+            message:
+                'EduSphere API is running successfully.',
 
-      status:
-        "online",
-    });
-  }
+            status:
+                'online'
+        });
+    }
 );
 
 /* =========================================================
@@ -1515,12 +1826,12 @@ app.get(
    ========================================================= */
 
 app.use(
-  (req, res) => {
-    res.status(404).json({
-      error:
-        "Endpoint not found",
-    });
-  }
+    (req, res) => {
+        res.status(404).json({
+            error:
+                'Endpoint not found'
+        });
+    }
 );
 
 /* =========================================================
@@ -1528,53 +1839,126 @@ app.use(
    ========================================================= */
 
 app.use(
-  (
-    err,
-    req,
-    res,
-    next
-  ) => {
-    console.error(
-      err.stack
-    );
+    (
+        err,
+        req,
+        res,
+        next
+    ) => {
+        if (
+            err?.message ===
+            'CORS origin not allowed.'
+        ) {
+            return res
+                .status(403)
+                .json({
+                    message:
+                        'Origin not allowed.'
+                });
+        }
 
-    res.status(500).json({
-      error:
-        "Server Error",
+        console.error(
+            '[GLOBAL_ERROR]',
+            err?.stack ||
+                err?.message ||
+                err
+        );
 
-      message:
-        process.env.NODE_ENV ===
-        "development"
-          ? err.message
-          : "Something went wrong",
-    });
-  }
+        if (
+            res.headersSent
+        ) {
+            return next(
+                err
+            );
+        }
+
+        return res
+            .status(
+                err?.statusCode ||
+                    500
+            )
+            .json({
+                error:
+                    'Server Error',
+
+                message:
+                    IS_PRODUCTION
+                        ? 'Something went wrong.'
+                        : err.message
+            });
+    }
 );
 
 /* =========================================================
-   SERVER
+   DATABASE
    ========================================================= */
 
-app.listen(
-  PORT,
-  () => {
-    console.log(
-      `[Server] EduSphere API running in ${
-        process.env.NODE_ENV ||
-        "development"
-      } mode on port ${PORT}`
+async function connectDB() {
+    mongoose.set(
+        'strictQuery',
+        true
     );
 
-    console.log(
-      `[Server] Frontend: ${FRONTEND_URL}`
+    mongoose.set(
+        'sanitizeFilter',
+        true
     );
 
-    console.log(
-      `[Server] LinkedIn callback: ${LINKEDIN_REDIRECT_URI}`
-    );
+    const connection =
+        await mongoose.connect(
+            process.env.MONGO_URI,
+            {
+                serverSelectionTimeoutMS:
+                    10000
+            }
+        );
 
     console.log(
-      `[Server] GitHub callback: ${GITHUB_REDIRECT_URI}`
+        `[Database] MongoDB connected: ${connection.connection.host}`
     );
-  }
-);
+}
+
+/* =========================================================
+   START
+   ========================================================= */
+
+async function startServer() {
+    await connectDB();
+
+    app.listen(
+        PORT,
+        () => {
+            console.log(
+                `[Server] EduSphere API running in ${NODE_ENV} mode on port ${PORT}`
+            );
+
+            console.log(
+                `[Server] Frontend: ${FRONTEND_URL}`
+            );
+
+            console.log(
+                `[Server] Backend: ${BACKEND_URL}`
+            );
+        }
+    );
+}
+
+if (
+    require.main ===
+    module
+) {
+    startServer().catch(
+        (error) => {
+            console.error(
+                `[Startup] ${error.message}`
+            );
+
+            process.exit(
+                1
+            );
+        }
+    );
+}
+
+module.exports =
+    app;

@@ -1,163 +1,483 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import {
+  useNavigate,
+  useLocation,
+  Link
+} from 'react-router-dom';
 
-export default function OtpVerification() {
-  const [otp, setOtp] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  'http://localhost:5000';
 
-  const navigate = useNavigate();
-  const location = useLocation();
 
-  // Retrieve the email and purpose passed from the previous page
-  const email = location.state?.email;
-  const purpose = location.state?.purpose || 'authentication';
+// =========================================================
+// EYE ICON
+// =========================================================
 
-  // Determine whether this OTP is for password reset
-  const isPasswordReset = purpose === 'password-reset';
+const EyeIcon = ({ hidden }) => {
+  if (hidden) {
+    return (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+        <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+        <path d="m1 1 22 22" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+      />
+    </svg>
+  );
+};
+
+
+export default function ForgotPassword() {
+
+  const navigate =
+    useNavigate();
+
+  const location =
+    useLocation();
+
+
+  // =========================================================
+  // ROUTING STATE
+  // =========================================================
+
+  const currentStep =
+    location.state?.step || 1;
+
+  const initialEmail =
+    location.state?.email || '';
+
+  const resetToken =
+    location.state?.resetToken || '';
+
+
+  const [step, setStep] =
+    useState(currentStep);
+
+  const [email, setEmail] =
+    useState(initialEmail);
+
+  const [password, setPassword] =
+    useState('');
+
+  const [confirmPassword, setConfirmPassword] =
+    useState('');
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
+
+  const [isLoading, setIsLoading] =
+    useState(false);
+
+
+  // =========================================================
+  // PASSWORD STRENGTH
+  // =========================================================
+
+  const [passwordStrength, setPasswordStrength] =
+    useState({
+      score: 0,
+      message: ''
+    });
+
+
+  const evaluatePassword = (pass) => {
+
+    let score = 0;
+
+    if (pass.length >= 8) {
+      score += 1;
+    }
+
+    if (/[A-Z]/.test(pass)) {
+      score += 1;
+    }
+
+    if (/[0-9]/.test(pass)) {
+      score += 1;
+    }
+
+    if (/[^A-Za-z0-9]/.test(pass)) {
+      score += 1;
+    }
+
+
+    let message = '';
+
+    switch (score) {
+
+      case 0:
+      case 1:
+        message = 'Weak';
+        break;
+
+      case 2:
+      case 3:
+        message = 'Fair';
+        break;
+
+      case 4:
+        message = 'Strong';
+        break;
+
+      default:
+        message = '';
+    }
+
+
+    setPasswordStrength({
+      score,
+      message
+    });
+  };
+
+
+  const handlePasswordChange = (e) => {
+
+    const value =
+      e.target.value;
+
+    setPassword(value);
+
+    evaluatePassword(value);
+  };
+
+
+  // =========================================================
+  // PROTECT RESET STEP
+  // =========================================================
 
   useEffect(() => {
-    // If someone navigates directly to /otp-verification
-    // without an email, send them back to login
-    if (!email) {
-      navigate('/login', { replace: true });
-    }
-  }, [email, navigate]);
 
-  const handleVerifyOTP = async (e) => {
+    if (
+      step === 3 &&
+      (!email || !resetToken)
+    ) {
+
+      alert(
+        'Your password reset session is invalid or expired. Please request a new reset code.'
+      );
+
+      navigate(
+        '/login',
+        {
+          replace: true
+        }
+      );
+    }
+
+  }, [
+    step,
+    email,
+    resetToken,
+    navigate
+  ]);
+
+
+  // =========================================================
+  // STEP 1
+  // REQUEST RESET CODE
+  // =========================================================
+
+  const handleRequestReset = async (e) => {
+
     e.preventDefault();
 
-    // Prevent duplicate requests
-    if (isLoading) return;
+    if (isLoading) {
+      return;
+    }
 
-    const cleanEmail = email?.trim().toLowerCase();
+
+    const cleanEmail =
+      email
+        ?.trim()
+        .toLowerCase();
+
 
     if (!cleanEmail) {
-      alert('Email address is missing. Please start again.');
-      navigate('/login', { replace: true });
+
+      alert(
+        'Please enter a valid email address.'
+      );
+
       return;
     }
 
-    if (otp.length !== 6) {
-      alert('Please enter the 6-digit verification code.');
-      return;
-    }
 
     setIsLoading(true);
 
+
     try {
-      /*
-       * Password reset:
-       * POST /api/auth/verify-reset-otp
-       *
-       * Normal authentication:
-       * POST /api/auth/verify-otp
-       */
-      const endpoint = isPasswordReset
-        ? 'http://localhost:5000/api/auth/verify-reset-otp'
-        : 'http://localhost:5000/api/auth/verify-otp';
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: cleanEmail,
-          otp,
-        }),
-      });
+      const response =
+        await fetch(
+          `${BACKEND_URL}/api/auth/forgot-password`,
+          {
+            method: 'POST',
 
-      const data = await response.json();
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
+
+            body: JSON.stringify({
+              email:
+                cleanEmail
+            })
+          }
+        );
+
+
+      const data =
+        await response.json();
+
 
       if (!response.ok) {
-        setOtp('');
 
         alert(
-          `Verification failed: ${
+          `Request failed: ${
             data.message ||
-            data.error ||
-            'Invalid or expired code'
+            'Unable to process request'
           }`
         );
 
         return;
       }
 
-      /*
-       * =====================================================
-       * PASSWORD RESET FLOW
-       * =====================================================
-       *
-       * The backend should return:
-       *
-       * {
-       *   message: "...",
-       *   resetToken: "..."
-       * }
-       *
-       * The reset token is then passed to ForgotPassword.jsx.
-       */
-      if (isPasswordReset) {
-        if (!data.resetToken) {
-          alert(
-            'Verification succeeded, but no reset token was received. Please try again.'
-          );
 
-          setOtp('');
-          return;
-        }
-
-        navigate('/forgot-password', {
+      navigate(
+        '/otp-verification',
+        {
           replace: true,
+
           state: {
-            email: cleanEmail,
-            resetToken: data.resetToken,
-            step: 3,
-          },
-        });
+            email:
+              cleanEmail,
 
-        return;
-      }
+            purpose:
+              'password-reset'
+          }
+        }
+      );
 
-      /*
-       * =====================================================
-       * EXISTING LOGIN / AUTHENTICATION FLOW
-       * =====================================================
-       *
-       * Keep the existing behavior unchanged.
-       */
-      if (!data.token) {
+    } catch (error) {
+
+      console.error(
+        'Forgot password error:',
+        error
+      );
+
+      alert(
+        'Could not connect to the server. Please check your connection.'
+      );
+
+    } finally {
+
+      setIsLoading(false);
+    }
+  };
+
+
+  // =========================================================
+  // STEP 3
+  // SET NEW PASSWORD
+  // =========================================================
+
+  const handleResetPassword = async (e) => {
+
+    e.preventDefault();
+
+    if (isLoading) {
+      return;
+    }
+
+
+    // -------------------------------------------------------
+    // RESET SESSION CHECK
+    // -------------------------------------------------------
+
+    if (!email || !resetToken) {
+
+      alert(
+        'Your password reset session is invalid or expired. Please request a new reset code.'
+      );
+
+      navigate(
+        '/login',
+        {
+          replace: true
+        }
+      );
+
+      return;
+    }
+
+
+    // -------------------------------------------------------
+    // PASSWORD MATCH
+    // -------------------------------------------------------
+
+    if (
+      password !==
+      confirmPassword
+    ) {
+
+      alert(
+        'Passwords do not match.'
+      );
+
+      return;
+    }
+
+
+    // -------------------------------------------------------
+    // PASSWORD STRENGTH
+    // -------------------------------------------------------
+
+    if (
+      passwordStrength.score < 4
+    ) {
+
+      alert(
+        'Password is too weak. Use at least 8 characters, one uppercase letter, one number, and one special character.'
+      );
+
+      return;
+    }
+
+
+    setIsLoading(true);
+
+
+    try {
+
+      const response =
+        await fetch(
+          `${BACKEND_URL}/api/auth/reset-password`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
+
+            body: JSON.stringify({
+
+              email:
+                email
+                  .trim()
+                  .toLowerCase(),
+
+              resetToken,
+
+              newPassword:
+                password
+
+            })
+          }
+        );
+
+
+      const data =
+        await response.json();
+
+
+      // -------------------------------------------------------
+      // SERVER ERROR
+      // -------------------------------------------------------
+
+      if (!response.ok) {
+
         alert(
-          'Verification succeeded, but no authentication token was received.'
+          `Reset failed: ${
+            data.message ||
+            data.error ||
+            'Unable to reset password'
+          }`
         );
 
         return;
       }
 
-      localStorage.setItem('token', data.token);
 
-      // Store returned user information if the backend provides it
-      if (data.user) {
-        localStorage.setItem('user', JSON.stringify(data.user));
-      }
+      // -------------------------------------------------------
+      // PASSWORD RESET SUCCESS
+      // -------------------------------------------------------
 
-      alert('Login successful!');
+      localStorage.removeItem(
+        'jwt_token'
+      );
 
-      navigate('/dashboard', { replace: true });
+      localStorage.removeItem(
+        'user_data'
+      );
 
-    } catch (error) {
-      console.error('OTP verification error:', error);
 
       alert(
-        'Could not connect to the server. Please check that the backend is running and try again.'
+        'Password successfully reset! You can now log in with your new password.'
+      );
+
+
+      navigate(
+        '/login',
+        {
+          replace: true
+        }
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        'Reset password error:',
+        error
+      );
+
+      alert(
+        'Could not connect to the server.'
       );
 
     } finally {
+
       setIsLoading(false);
     }
   };
 
-  if (!email) return null;
 
   return (
     <div
@@ -172,6 +492,7 @@ export default function OtpVerification() {
         padding: '20px'
       }}
     >
+
       <div
         style={{
           backgroundColor: '#FFFFFF',
@@ -187,9 +508,7 @@ export default function OtpVerification() {
         }}
       >
 
-        {/* =====================================================
-            ICON
-            ===================================================== */}
+        {/* ICON */}
 
         <div
           style={{
@@ -204,6 +523,7 @@ export default function OtpVerification() {
             color: '#2563EB'
           }}
         >
+
           <svg
             width="24"
             height="24"
@@ -214,21 +534,38 @@ export default function OtpVerification() {
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <rect
-              x="3"
-              y="11"
-              width="18"
-              height="11"
-              rx="2"
-              ry="2"
-            />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+
+            {
+              step === 1 ? (
+
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6" />
+
+              ) : (
+
+                <>
+                  <rect
+                    x="3"
+                    y="11"
+                    width="18"
+                    height="11"
+                    rx="2"
+                    ry="2"
+                  />
+
+                  <path
+                    d="M7 11V7a5 5 0 0 1 10 0v4"
+                  />
+                </>
+
+              )
+            }
+
           </svg>
+
         </div>
 
-        {/* =====================================================
-            TITLE
-            ===================================================== */}
+
+        {/* TITLE */}
 
         <h2
           style={{
@@ -238,14 +575,17 @@ export default function OtpVerification() {
             margin: '0 0 8px 0'
           }}
         >
-          {isPasswordReset
-            ? 'Reset Password'
-            : 'Enter 2FA Code'}
+
+          {
+            step === 1
+              ? 'Forgot Password'
+              : 'Set New Password'
+          }
+
         </h2>
 
-        {/* =====================================================
-            DESCRIPTION
-            ===================================================== */}
+
+        {/* DESCRIPTION */}
 
         <p
           style={{
@@ -254,90 +594,402 @@ export default function OtpVerification() {
             margin: '0 0 28px 0'
           }}
         >
-          {isPasswordReset ? (
-            <>
-              We sent a 6-digit password reset code to
-              <br />
-              <strong>{email}</strong>
-            </>
-          ) : (
-            <>
-              We sent a 6-digit code to
-              <br />
-              <strong>{email}</strong>
-            </>
-          )}
+
+          {
+            step === 1
+
+              ? "Enter your email and we'll send you a verification code to reset your password."
+
+              : (
+                <>
+                  Create a new, strong password for
+                  <br />
+                  <strong>
+                    {email}
+                  </strong>
+                </>
+              )
+          }
+
         </p>
 
-        {/* =====================================================
-            OTP FORM
-            ===================================================== */}
-
-        <form
-          onSubmit={handleVerifyOTP}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '20px'
-          }}
-        >
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="123456"
-            value={otp}
-            onChange={(e) =>
-              setOtp(
-                e.target.value
-                  .replace(/\D/g, '')
-                  .slice(0, 6)
-              )
-            }
-            maxLength={6}
-            required
-            disabled={isLoading}
-            style={{
-              width: '100%',
-              height: '46px',
-              textAlign: 'center',
-              letterSpacing: '4px',
-              borderRadius: '10px',
-              border: '1px solid #D1D5DB',
-              fontSize: '18px',
-              outline: 'none',
-              boxSizing: 'border-box',
-              backgroundColor: isLoading
-                ? '#F9FAFB'
-                : '#FFFFFF'
-            }}
-          />
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            style={{
-              width: '100%',
-              height: '48px',
-              backgroundColor: '#2563EB',
-              color: '#FFFFFF',
-              fontSize: '16px',
-              fontWeight: '600',
-              border: 'none',
-              borderRadius: '10px',
-              cursor: isLoading
-                ? 'not-allowed'
-                : 'pointer',
-              opacity: isLoading ? 0.7 : 1
-            }}
-          >
-            {isLoading ? 'Verifying...' : 'Verify Code'}
-          </button>
-        </form>
 
         {/* =====================================================
-            FOOTER
+            STEP 1
             ===================================================== */}
+
+        {
+          step === 1 ? (
+
+            <form
+              onSubmit={
+                handleRequestReset
+              }
+
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px'
+              }}
+            >
+
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) =>
+                  setEmail(
+                    e.target.value
+                  )
+                }
+                required
+                disabled={isLoading}
+                style={{
+                  width: '100%',
+                  height: '46px',
+                  padding: '0 16px',
+                  borderRadius: '10px',
+                  border:
+                    '1px solid #D1D5DB',
+                  fontSize: '16px',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                style={{
+                  width: '100%',
+                  height: '48px',
+                  backgroundColor: '#2563EB',
+                  color: '#FFFFFF',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  border: 'none',
+                  borderRadius: '10px',
+                  cursor:
+                    isLoading
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    isLoading
+                      ? 0.7
+                      : 1
+                }}
+              >
+
+                {
+                  isLoading
+                    ? 'Sending...'
+                    : 'Send Reset Code'
+                }
+
+              </button>
+
+            </form>
+
+          ) : (
+
+            /* =================================================
+               STEP 3
+               ================================================= */
+
+            <form
+              onSubmit={
+                handleResetPassword
+              }
+
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '15px'
+              }}
+            >
+
+              {/* NEW PASSWORD */}
+
+              <div
+                style={{
+                  position: 'relative',
+                  width: '100%'
+                }}
+              >
+
+                <input
+                  type={
+                    showPassword
+                      ? 'text'
+                      : 'password'
+                  }
+
+                  placeholder="New Password"
+
+                  value={password}
+
+                  onChange={
+                    handlePasswordChange
+                  }
+
+                  required
+
+                  disabled={isLoading}
+
+                  autoComplete="new-password"
+
+                  style={{
+                    width: '100%',
+                    height: '46px',
+                    padding:
+                      '0 52px 0 16px',
+                    borderRadius: '10px',
+                    border:
+                      '1px solid #D1D5DB',
+                    fontSize: '16px',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+
+
+                <button
+                  type="button"
+
+                  onClick={() =>
+                    setShowPassword(
+                      previous =>
+                        !previous
+                    )
+                  }
+
+                  disabled={isLoading}
+
+                  aria-label={
+                    showPassword
+                      ? 'Hide password'
+                      : 'Show password'
+                  }
+
+                  style={{
+                    position:
+                      'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform:
+                      'translateY(-50%)',
+                    width: '30px',
+                    height: '30px',
+                    display:
+                      'flex',
+                    alignItems:
+                      'center',
+                    justifyContent:
+                      'center',
+                    border:
+                      'none',
+                    background:
+                      'transparent',
+                    color: '#9CA3AF',
+                    cursor:
+                      isLoading
+                        ? 'not-allowed'
+                        : 'pointer',
+                    padding: '0'
+                  }}
+                >
+
+                  <EyeIcon
+                    hidden={
+                      showPassword
+                    }
+                  />
+
+                </button>
+
+              </div>
+
+
+              {/* PASSWORD STRENGTH */}
+
+              {
+                password.length > 0 && (
+
+                  <div
+                    style={{
+                      textAlign:
+                        'left',
+                      fontSize:
+                        '12px',
+                      marginTop:
+                        '-10px',
+                      color:
+                        passwordStrength.score >= 4
+                          ? 'green'
+                          : 'red'
+                    }}
+                  >
+
+                    Strength: {
+                      passwordStrength.message
+                    }
+
+                  </div>
+
+                )
+              }
+
+
+              {/* CONFIRM PASSWORD */}
+
+              <div
+                style={{
+                  position: 'relative',
+                  width: '100%'
+                }}
+              >
+
+                <input
+                  type={
+                    showConfirmPassword
+                      ? 'text'
+                      : 'password'
+                  }
+
+                  placeholder="Confirm New Password"
+
+                  value={
+                    confirmPassword
+                  }
+
+                  onChange={(e) =>
+                    setConfirmPassword(
+                      e.target.value
+                    )
+                  }
+
+                  required
+
+                  disabled={isLoading}
+
+                  autoComplete="new-password"
+
+                  style={{
+                    width: '100%',
+                    height: '46px',
+                    padding:
+                      '0 52px 0 16px',
+                    borderRadius: '10px',
+                    border:
+                      '1px solid #D1D5DB',
+                    fontSize: '16px',
+                    outline: 'none',
+                    boxSizing:
+                      'border-box'
+                  }}
+                />
+
+
+                <button
+                  type="button"
+
+                  onClick={() =>
+                    setShowConfirmPassword(
+                      previous =>
+                        !previous
+                    )
+                  }
+
+                  disabled={isLoading}
+
+                  aria-label={
+                    showConfirmPassword
+                      ? 'Hide password'
+                      : 'Show password'
+                  }
+
+                  style={{
+                    position:
+                      'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform:
+                      'translateY(-50%)',
+                    width: '30px',
+                    height: '30px',
+                    display:
+                      'flex',
+                    alignItems:
+                      'center',
+                    justifyContent:
+                      'center',
+                    border:
+                      'none',
+                    background:
+                      'transparent',
+                    color: '#9CA3AF',
+                    cursor:
+                      isLoading
+                        ? 'not-allowed'
+                        : 'pointer',
+                    padding: '0'
+                  }}
+                >
+
+                  <EyeIcon
+                    hidden={
+                      showConfirmPassword
+                    }
+                  />
+
+                </button>
+
+              </div>
+
+
+              {/* RESET BUTTON */}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                style={{
+                  width: '100%',
+                  height: '48px',
+                  backgroundColor:
+                    '#2563EB',
+                  color: '#FFFFFF',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  border: 'none',
+                  borderRadius: '10px',
+                  cursor:
+                    isLoading
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    isLoading
+                      ? 0.7
+                      : 1,
+                  marginTop: '10px'
+                }}
+              >
+
+                {
+                  isLoading
+                    ? 'Resetting...'
+                    : 'Reset Password'
+                }
+
+              </button>
+
+            </form>
+
+          )
+        }
+
+
+        {/* FOOTER */}
 
         <p
           style={{
@@ -347,7 +999,8 @@ export default function OtpVerification() {
             color: '#6B7280'
           }}
         >
-          Didn't receive it or want to use a different account?{' '}
+
+          Remember your password?{' '}
 
           <Link
             to="/login"
@@ -359,9 +1012,11 @@ export default function OtpVerification() {
           >
             Back to Login
           </Link>
+
         </p>
 
       </div>
+
     </div>
   );
 }
